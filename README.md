@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/syamsul18782/srpcom-download-manager/releases/latest"><img src="https://img.shields.io/github/v/release/syamsul18782/srpcom-download-manager?color=blue&style=for-the-badge&logo=github" alt="Release" /></a>
+  <a href="https://github.com/srpcom/srpcom-download-manager/releases/latest"><img src="https://img.shields.io/github/v/release/srpcom/srpcom-download-manager?color=blue&style=for-the-badge&logo=github" alt="Release" /></a>
   <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6?style=for-the-badge&logo=windows" alt="Platform" />
   <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python" alt="Python" />
   <img src="https://img.shields.io/badge/License-Proprietary-red?style=for-the-badge" alt="License" />
@@ -47,13 +47,13 @@
 
 ## 📥 Download & Instalasi
 
-Dapatkan versi terbaru langsung melalui menu [**GitHub Releases**](https://github.com/syamsul18782/srpcom-download-manager/releases/latest):
+Dapatkan versi terbaru langsung melalui menu [**GitHub Releases**](https://github.com/srpcom/srpcom-download-manager/releases/latest):
 
 | Berkas | Tipe | Deskripsi |
 | :--- | :---: | :--- |
-| **[`SRPCOM_Setup.exe`](https://github.com/syamsul18782/srpcom-download-manager/releases/latest)** | 📦 Installer (~81 MB) | Setup wizard otomatis: membuat Desktop Shortcut, Start Menu, dan terdaftar di *Windows Installed Apps*. |
-| **[`SRPCOM Download Manager.exe`](https://github.com/syamsul18782/srpcom-download-manager/releases/latest)** | 🚀 Portable (~37 MB) | Versi portable *standalone*, tanpa instalasi. Cukup klik ganda langsung berjalan. |
-| **[`srpcom_extension.zip`](https://github.com/syamsul18782/srpcom-download-manager/releases/latest)** | 🧩 Ekstensi Chrome | Pasang di `chrome://extensions` (Developer Mode) untuk integrasi unduhan dan YouTube otomatis. |
+| **[`SRPCOM_Setup.exe`](https://github.com/srpcom/srpcom-download-manager/releases/latest)** | 📦 Installer (~81 MB) | Setup wizard otomatis: membuat Desktop Shortcut, Start Menu, dan terdaftar di *Windows Installed Apps*. |
+| **[`SRPCOM Download Manager.exe`](https://github.com/srpcom/srpcom-download-manager/releases/latest)** | 🚀 Portable (~37 MB) | Versi portable *standalone*, tanpa instalasi. Cukup klik ganda langsung berjalan. |
+| **[`srpcom_extension.zip`](https://github.com/srpcom/srpcom-download-manager/releases/latest)** | 🧩 Ekstensi Chrome | Pasang di `chrome://extensions` (Developer Mode) untuk integrasi unduhan dan YouTube otomatis. |
 
 ---
 
@@ -76,7 +76,7 @@ Dapatkan versi terbaru langsung melalui menu [**GitHub Releases**](https://githu
 ### 2. Instalasi & Menjalankan
 ```powershell
 # Clone repositori
-git clone https://github.com/syamsul18782/srpcom-download-manager.git
+git clone https://github.com/srpcom/srpcom-download-manager.git
 cd srpcom-download-manager
 
 # Buat virtual environment

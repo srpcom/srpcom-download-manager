@@ -327,8 +327,8 @@ class HelpAboutDialog(ctk.CTkToplevel):
             (
                 "🌐 Repositori Resmi GitHub",
                 "Lihat kode sumber terbuka, unduh rilisan binary terbaru, atau laporkan issue / kontribusi pengembangan di GitHub.",
-                "github.com/syamsul18782/srpcom-download-manager",
-                "https://github.com/syamsul18782/srpcom-download-manager",
+                "github.com/srpcom/srpcom-download-manager",
+                "https://github.com/srpcom/srpcom-download-manager",
                 "#805AD5",
                 "⭐ Buka GitHub Repository"
             )

@@ -471,7 +471,7 @@ def create_flyer():
 
     # Right column: GitHub Release Link & OS support
     draw.text((W - 550, info_y), "Unduh Versi Terbaru (GitHub):", font=font_footer_bold, fill=(0, 210, 255))
-    draw.text((W - 550, info_y + 30), "github.com/syamsul18782/srpcom-download-manager", font=font_footer_regular, fill=(255, 255, 255))
+    draw.text((W - 550, info_y + 30), "github.com/srpcom/srpcom-download-manager", font=font_footer_regular, fill=(255, 255, 255))
     draw.text((W - 550, info_y + 58), "Kompatibel: Windows 10 & Windows 11 (64-bit)", font=get_font("semibold", 14), fill=(160, 178, 205))
 
     # Convert to RGB and save as ultra-high-quality JPG
