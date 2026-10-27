@@ -15,6 +15,7 @@ from .add_dialog import AddDownloadDialog
 from .segment_dialog import SegmentDetailDialog
 from .complete_dialog import DownloadCompleteDialog
 from .extension_dialog import BrowserExtensionDialog
+from .help_dialog import HelpAboutDialog
 from .window_utils import bring_window_to_front
 
 def get_asset_path(filename: str) -> str:
@@ -466,6 +467,18 @@ class MainWindow(ctk.CTk):
             command=self._open_extension_dialog
         )
         ext_btn.pack(side="left", padx=3)
+
+        help_btn = ctk.CTkButton(
+            tb,
+            text="❓ Bantuan",
+            width=90,
+            height=34,
+            fg_color="#4A5568",
+            hover_color="#2D3748",
+            font=ctk.CTkFont(weight="bold"),
+            command=self._open_help_dialog
+        )
+        help_btn.pack(side="left", padx=3)
 
         # Right side of toolbar: Speed Limiter & Threads Limiter
         # 1. Threads / Segments Selector
@@ -965,6 +978,9 @@ class MainWindow(ctk.CTk):
 
     def _open_extension_dialog(self):
         BrowserExtensionDialog(self)
+
+    def _open_help_dialog(self):
+        HelpAboutDialog(self)
 
     def _on_download_complete(self, task: DownloadTask):
         def show_dialog():
