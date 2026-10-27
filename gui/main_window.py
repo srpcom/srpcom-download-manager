@@ -595,9 +595,16 @@ class MainWindow(ctk.CTk):
         )
         bring_window_to_front(dlg)
 
-    def open_add_dialog_with_url(self, url: str, filename: str = ""):
+    def open_add_dialog_with_url(
+        self,
+        url: str,
+        filename: str = "",
+        cookies: str = "",
+        referer: str = "",
+        user_agent: str = ""
+    ):
         if is_video_streaming_url(url):
-            self.open_video_download_dialog(url, "best", filename)
+            self.open_video_download_dialog(url, "best", filename, cookies=cookies, referer=referer, user_agent=user_agent)
             return
 
         def show():
@@ -611,7 +618,10 @@ class MainWindow(ctk.CTk):
                 parent=self,
                 default_dir=save_dir,
                 on_submit=self._create_download,
-                on_batch_submit=self._create_batch_download
+                on_batch_submit=self._create_batch_download,
+                cookies=cookies,
+                referer=referer,
+                user_agent=user_agent
             )
             dlg.url_entry.delete(0, "end")
             dlg.url_entry.insert(0, url)
@@ -622,7 +632,15 @@ class MainWindow(ctk.CTk):
             dlg._trigger_inspect()
         self.after(0, show)
 
-    def open_video_download_dialog(self, url: str, quality: str = "best", title: str = ""):
+    def open_video_download_dialog(
+        self,
+        url: str,
+        quality: str = "best",
+        title: str = "",
+        cookies: str = "",
+        referer: str = "",
+        user_agent: str = ""
+    ):
         def show():
             bring_window_to_front(self)
             from core.settings import get_remembered_folder
@@ -635,7 +653,10 @@ class MainWindow(ctk.CTk):
                 default_dir=video_dir,
                 on_submit=self._create_download,
                 on_batch_submit=self._create_batch_download,
-                initial_quality=quality
+                initial_quality=quality,
+                cookies=cookies,
+                referer=referer,
+                user_agent=user_agent
             )
             dlg.url_entry.delete(0, "end")
             dlg.url_entry.insert(0, url)
@@ -656,7 +677,10 @@ class MainWindow(ctk.CTk):
         connections: int,
         start_now: bool,
         task_type: str = "file",
-        video_quality: str = "best"
+        video_quality: str = "best",
+        cookies: str = "",
+        referer: str = "",
+        user_agent: str = ""
     ):
         task = self.manager.add_task(
             url=url,
@@ -665,7 +689,10 @@ class MainWindow(ctk.CTk):
             connections=connections,
             start_now=start_now,
             task_type=task_type,
-            video_quality=video_quality
+            video_quality=video_quality,
+            cookies=cookies,
+            referer=referer,
+            user_agent=user_agent
         )
         self._refresh_task_rows()
         self._select_task(task.task_id)

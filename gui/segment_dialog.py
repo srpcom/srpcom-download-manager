@@ -1,5 +1,7 @@
 import os
 import sys
+import threading
+import tkinter as tk
 import customtkinter as ctk
 from core.downloader import DownloadTask, format_size, format_time
 
@@ -14,8 +16,8 @@ class SegmentDetailDialog(ctk.CTkToplevel):
     def __init__(self, parent, task: DownloadTask):
         super().__init__(parent)
         self.task = task
-        self.title(f"Download Status - {task.filename} - SRPCOM")
-        self.geometry("620x520")
+        self.title(f"Download Details & Speed Graph - {task.filename} - SRPCOM")
+        self.geometry("660x680")
         self.transient(parent)
 
         icon_path = get_asset_path("logo.ico")
@@ -31,73 +33,93 @@ class SegmentDetailDialog(ctk.CTkToplevel):
     def _init_ui(self):
         # Header
         top_frame = ctk.CTkFrame(self, fg_color="transparent")
-        top_frame.pack(fill="x", padx=20, pady=(15, 10))
+        top_frame.pack(fill="x", padx=20, pady=(12, 6))
 
         title = ctk.CTkLabel(
             top_frame,
             text=f"Details: {self.task.filename}",
-            font=ctk.CTkFont(size=16, weight="bold"),
+            font=ctk.CTkFont(size=15, weight="bold"),
             anchor="w"
         )
         title.pack(fill="x")
 
         # Info Box
         info_box = ctk.CTkFrame(self)
-        info_box.pack(fill="x", padx=20, pady=5)
+        info_box.pack(fill="x", padx=20, pady=4)
 
-        self.status_lbl = ctk.CTkLabel(info_box, text="", anchor="w")
-        self.status_lbl.pack(fill="x", padx=15, pady=2)
+        self.status_lbl = ctk.CTkLabel(info_box, text="", anchor="w", font=ctk.CTkFont(size=12))
+        self.status_lbl.pack(fill="x", padx=15, pady=1)
 
-        self.size_lbl = ctk.CTkLabel(info_box, text="", anchor="w")
-        self.size_lbl.pack(fill="x", padx=15, pady=2)
+        self.size_lbl = ctk.CTkLabel(info_box, text="", anchor="w", font=ctk.CTkFont(size=12))
+        self.size_lbl.pack(fill="x", padx=15, pady=1)
 
-        self.speed_lbl = ctk.CTkLabel(info_box, text="", anchor="w")
-        self.speed_lbl.pack(fill="x", padx=15, pady=2)
+        self.speed_lbl = ctk.CTkLabel(info_box, text="", anchor="w", font=ctk.CTkFont(size=12))
+        self.speed_lbl.pack(fill="x", padx=15, pady=1)
 
-        self.eta_lbl = ctk.CTkLabel(info_box, text="", anchor="w")
-        self.eta_lbl.pack(fill="x", padx=15, pady=2)
+        self.eta_lbl = ctk.CTkLabel(info_box, text="", anchor="w", font=ctk.CTkFont(size=12))
+        self.eta_lbl.pack(fill="x", padx=15, pady=1)
 
-        self.resume_lbl = ctk.CTkLabel(info_box, text="", anchor="w")
-        self.resume_lbl.pack(fill="x", padx=15, pady=2)
+        self.resume_lbl = ctk.CTkLabel(info_box, text="", anchor="w", font=ctk.CTkFont(size=12))
+        self.resume_lbl.pack(fill="x", padx=15, pady=1)
 
         # Overall Progress Bar
-        self.overall_bar = ctk.CTkProgressBar(self, height=14)
-        self.overall_bar.pack(fill="x", padx=20, pady=(10, 5))
+        self.overall_bar = ctk.CTkProgressBar(self, height=12)
+        self.overall_bar.pack(fill="x", padx=20, pady=(8, 4))
         self.overall_bar.set(0)
 
-        # Segments Label
-        seg_title = ctk.CTkLabel(
+        # --- Speed History Graph ---
+        graph_box = ctk.CTkFrame(self)
+        graph_box.pack(fill="x", padx=20, pady=(6, 4))
+
+        graph_header = ctk.CTkFrame(graph_box, fg_color="transparent")
+        graph_header.pack(fill="x", padx=10, pady=(6, 2))
+
+        g_title = ctk.CTkLabel(
+            graph_header,
+            text="📈 Speed History Graph (Fluktuasi Kecepatan Real-Time):",
+            font=ctk.CTkFont(size=12, weight="bold")
+        )
+        g_title.pack(side="left")
+
+        self.graph_stat_lbl = ctk.CTkLabel(
+            graph_header,
+            text="Peak: 0 KB/s",
+            font=ctk.CTkFont(size=11),
+            text_color="#06B6D4"
+        )
+        self.graph_stat_lbl.pack(side="right")
+
+        # Tkinter Canvas for Speed Graph
+        self.canvas_h = 100
+        self.canvas = tk.Canvas(
+            graph_box,
+            height=self.canvas_h,
+            bg="#0f172a",
+            highlightthickness=1,
+            highlightbackground="#1e293b"
+        )
+        self.canvas.pack(fill="x", padx=10, pady=(2, 8))
+
+        # --- Segments Section ---
+        self.seg_title = ctk.CTkLabel(
             self,
-            text="Connection Threads (Multi-segmented download):",
-            font=ctk.CTkFont(size=13, weight="bold"),
+            text="Connection Threads (Dynamic Chunk Splitting):",
+            font=ctk.CTkFont(size=12, weight="bold"),
             anchor="w"
         )
-        seg_title.pack(fill="x", padx=20, pady=(10, 5))
+        self.seg_title.pack(fill="x", padx=20, pady=(6, 2))
 
         # Scrollable Frame for Segment bars
-        self.seg_scroll = ctk.CTkScrollableFrame(self, height=180)
-        self.seg_scroll.pack(fill="both", expand=True, padx=20, pady=(0, 10))
+        self.seg_scroll = ctk.CTkScrollableFrame(self, height=140)
+        self.seg_scroll.pack(fill="both", expand=True, padx=20, pady=(0, 6))
 
         self.seg_widgets = []
         for i in range(max(1, len(self.task.segments))):
-            row = ctk.CTkFrame(self.seg_scroll, fg_color="transparent")
-            row.pack(fill="x", pady=3)
-
-            lbl = ctk.CTkLabel(row, text=f"Connection {i+1}:", width=110, anchor="w", font=ctk.CTkFont(size=11))
-            lbl.pack(side="left", padx=(0, 5))
-
-            pbar = ctk.CTkProgressBar(row, height=10)
-            pbar.pack(side="left", fill="x", expand=True, padx=5)
-            pbar.set(0)
-
-            val_lbl = ctk.CTkLabel(row, text="0 / 0", width=120, anchor="e", font=ctk.CTkFont(size=11))
-            val_lbl.pack(side="right", padx=(5, 0))
-
-            self.seg_widgets.append((lbl, pbar, val_lbl))
+            self._create_segment_row(i)
 
         # Close button
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
-        btn_frame.pack(fill="x", padx=20, pady=(5, 15))
+        btn_frame.pack(fill="x", padx=20, pady=(4, 12))
 
         close_btn = ctk.CTkButton(
             btn_frame,
@@ -106,6 +128,80 @@ class SegmentDetailDialog(ctk.CTkToplevel):
             command=self.destroy
         )
         close_btn.pack(side="right")
+
+    def _create_segment_row(self, index: int):
+        row = ctk.CTkFrame(self.seg_scroll, fg_color="transparent")
+        row.pack(fill="x", pady=2)
+
+        lbl = ctk.CTkLabel(row, text=f"Connection {index+1}:", width=140, anchor="w", font=ctk.CTkFont(size=11))
+        lbl.pack(side="left", padx=(0, 5))
+
+        pbar = ctk.CTkProgressBar(row, height=8)
+        pbar.pack(side="left", fill="x", expand=True, padx=5)
+        pbar.set(0)
+
+        val_lbl = ctk.CTkLabel(row, text="0 / 0", width=130, anchor="e", font=ctk.CTkFont(size=11))
+        val_lbl.pack(side="right", padx=(5, 0))
+
+        self.seg_widgets.append((lbl, pbar, val_lbl))
+
+    def _draw_speed_graph(self):
+        self.canvas.delete("all")
+        w = self.canvas.winfo_width()
+        h = self.canvas_h
+        if w < 10:
+            w = 600
+
+        history = list(self.task.speed_history)
+        if not history:
+            history = [self.task.speed]
+
+        peak_speed = max(max(history), 1024)
+        curr_speed = history[-1] if history else 0
+        self.graph_stat_lbl.configure(text=f"Current: {format_size(int(curr_speed))}/s | Peak: {format_size(int(peak_speed))}/s")
+
+        # Draw grid lines (0%, 50%, 100%)
+        margin_y = 10
+        margin_x = 10
+        plot_w = w - (margin_x * 2)
+        plot_h = h - (margin_y * 2)
+
+        # Midline
+        mid_y = margin_y + (plot_h / 2)
+        self.canvas.create_line(margin_x, mid_y, w - margin_x, mid_y, fill="#1e293b", dash=(3, 3))
+        self.canvas.create_text(w - margin_x - 5, mid_y - 6, text=f"{format_size(int(peak_speed/2))}/s", fill="#475569", font=("Segoe UI", 8), anchor="e")
+
+        # Top line
+        self.canvas.create_line(margin_x, margin_y, w - margin_x, margin_y, fill="#1e293b", dash=(3, 3))
+        self.canvas.create_text(w - margin_x - 5, margin_y + 6, text=f"{format_size(int(peak_speed))}/s", fill="#475569", font=("Segoe UI", 8), anchor="e")
+
+        # Points calculation
+        max_points = 50
+        data = history[-max_points:]
+        n = len(data)
+        if n < 2:
+            pts = [(margin_x, h - margin_y), (w - margin_x, h - margin_y)]
+        else:
+            dx = plot_w / (n - 1)
+            pts = []
+            for i, val in enumerate(data):
+                px = margin_x + (i * dx)
+                ratio = min(1.0, max(0.0, val / peak_speed))
+                py = h - margin_y - (ratio * plot_h)
+                pts.append((px, py))
+
+        # Fill under curve
+        fill_poly = [(pts[0][0], h - margin_y)] + pts + [(pts[-1][0], h - margin_y)]
+        flat_poly = [coord for pt in fill_poly for coord in pt]
+        self.canvas.create_polygon(flat_poly, fill="#0c4a6e", outline="")
+
+        # Neon Cyan Curve Line
+        flat_line = [coord for pt in pts for coord in pt]
+        self.canvas.create_line(flat_line, fill="#06B6D4", width=2, smooth=True)
+
+        # Current point dot
+        last_x, last_y = pts[-1]
+        self.canvas.create_oval(last_x - 3, last_y - 3, last_x + 3, last_y + 3, fill="#38BDF8", outline="#ffffff", width=1)
 
     def _update_loop(self):
         if not self.winfo_exists():
@@ -125,30 +221,30 @@ class SegmentDetailDialog(ctk.CTkToplevel):
 
         self.overall_bar.set(pct / 100.0)
 
-        # Re-populate segment widgets if segment count changed
-        if len(self.task.segments) > len(self.seg_widgets):
-            for i in range(len(self.seg_widgets), len(self.task.segments)):
-                row = ctk.CTkFrame(self.seg_scroll, fg_color="transparent")
-                row.pack(fill="x", pady=3)
+        # Draw real-time Speed Graph
+        self._draw_speed_graph()
 
-                lbl = ctk.CTkLabel(row, text=f"Connection {i+1}:", width=110, anchor="w", font=ctk.CTkFont(size=11))
-                lbl.pack(side="left", padx=(0, 5))
+        # Update dynamic chunk splitting connection list
+        with getattr(self.task, "segment_lock", threading.Lock()):
+            segs = list(self.task.segments)
 
-                pbar = ctk.CTkProgressBar(row, height=10)
-                pbar.pack(side="left", fill="x", expand=True, padx=5)
-                pbar.set(0)
+        active_count = sum(1 for s in segs if getattr(s, "is_active", False))
+        self.seg_title.configure(text=f"Connection Threads ({active_count} Aktif / {len(segs)} Segmen - Dynamic Chunk Splitting):")
 
-                val_lbl = ctk.CTkLabel(row, text="0 / 0", width=120, anchor="e", font=ctk.CTkFont(size=11))
-                val_lbl.pack(side="right", padx=(5, 0))
+        # Grow segment rows if new sub-segments were created dynamically
+        if len(segs) > len(self.seg_widgets):
+            for i in range(len(self.seg_widgets), len(segs)):
+                self._create_segment_row(i)
 
-                self.seg_widgets.append((lbl, pbar, val_lbl))
-
-        # Update segment bars
-        for idx, seg in enumerate(self.task.segments):
+        # Update progress and status icons for each segment
+        for idx, seg in enumerate(segs):
             if idx < len(self.seg_widgets):
-                _, pbar, val_lbl = self.seg_widgets[idx]
+                lbl, pbar, val_lbl = self.seg_widgets[idx]
                 seg_pct = (seg.downloaded / seg.total) if seg.total > 0 else 0
                 pbar.set(min(1.0, seg_pct))
+                
+                status_icon = "🟢" if seg.is_finished else ("🔵" if getattr(seg, "is_active", False) else "⚪")
+                lbl.configure(text=f"{status_icon} Part {idx+1}:")
                 val_lbl.configure(text=f"{format_size(seg.downloaded)} / {format_size(seg.total)}")
 
         self.after(500, self._update_loop)

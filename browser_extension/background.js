@@ -1,6 +1,6 @@
 const SERVER_BASE = "http://127.0.0.1:9876";
 
-// 1. Right Click Context Menus
+// 1. Context Menus
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
     id: "srpcom-download-link",
@@ -15,34 +15,43 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
-chrome.contextMenus.onClicked.addListener((info, tab) => {
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  const referer = (tab && tab.url) || "";
   if (info.menuItemId === "srpcom-download-video") {
     const videoUrl = info.srcUrl || (tab && tab.url) || "";
     const title = (tab && tab.title) || "";
     if (videoUrl) {
-      sendVideoToSRPCOM(videoUrl, "best", title);
+      await sendVideoToSRPCOM(videoUrl, "best", title, { referer });
     }
   } else {
     const targetUrl = info.linkUrl || info.srcUrl;
     if (targetUrl) {
-      sendToSRPCOM(targetUrl, "");
+      await sendToSRPCOM(targetUrl, "", { referer });
     }
   }
 });
 
 // 2. Intercept Messages from Content Script
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  const referer = (sender && sender.tab && sender.tab.url) || msg.referer || "";
   if (msg.action === "download" && msg.url) {
-    sendToSRPCOM(msg.url, msg.filename || "");
+    sendToSRPCOM(msg.url, msg.filename || "", {
+      referer: referer,
+      cookies: msg.cookies || ""
+    });
     sendResponse({ received: true });
   } else if (msg.action === "download_video" && msg.url) {
-    sendVideoToSRPCOM(msg.url, msg.quality || "best", msg.title || "");
+    sendVideoToSRPCOM(msg.url, msg.quality || "best", msg.title || "", {
+      referer: referer,
+      cookies: msg.cookies || ""
+    });
     sendResponse({ received: true });
   }
+  return true;
 });
 
 // 3. Intercept Native Browser Downloads (catches redirects, scripts, form downloads)
-chrome.downloads.onCreated.addListener((downloadItem) => {
+chrome.downloads.onCreated.addListener(async (downloadItem) => {
   const url = downloadItem.finalUrl || downloadItem.url;
   
   if (!url || url.startsWith("blob:") || url.startsWith("data:") || url.startsWith("chrome://")) {
@@ -54,33 +63,78 @@ chrome.downloads.onCreated.addListener((downloadItem) => {
     chrome.downloads.erase({ id: downloadItem.id });
   });
 
-  // Forward to desktop SRPCOM Download Manager
-  sendToSRPCOM(url, downloadItem.filename || "");
+  const referer = downloadItem.referrer || "";
+  await sendToSRPCOM(url, downloadItem.filename || "", { referer });
 });
 
-function sendToSRPCOM(url, filename) {
-  const query = new URLSearchParams({
-    url: url,
-    filename: filename
-  }).toString();
+async function getCookiesForUrl(url) {
+  try {
+    if (chrome.cookies && url.startsWith("http")) {
+      const cookies = await chrome.cookies.getAll({ url: url });
+      if (cookies && cookies.length > 0) {
+        return cookies.map((c) => `${c.name}=${c.value}`).join("; ");
+      }
+    }
+  } catch (e) {
+    console.debug("Could not get cookies for", url, e);
+  }
+  return "";
+}
 
-  fetch(`${SERVER_BASE}/add?${query}`, { method: "GET" })
+async function sendToSRPCOM(url, filename, options = {}) {
+  const cookies = options.cookies || (await getCookiesForUrl(url));
+  const payload = {
+    url: url,
+    filename: filename || "",
+    cookies: cookies || "",
+    referer: options.referer || "",
+    user_agent: navigator.userAgent || ""
+  };
+
+  fetch(`${SERVER_BASE}/add`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  })
     .then((res) => res.json())
     .catch((err) => {
-      console.warn("Could not reach SRPCOM Download Manager. Pastikan aplikasi SRPCOM terbuka!", err);
+      // Fallback to GET query params
+      const query = new URLSearchParams({
+        url: url,
+        filename: filename || "",
+        cookies: cookies || "",
+        referer: options.referer || ""
+      }).toString();
+      fetch(`${SERVER_BASE}/add?${query}`).catch(() => {});
     });
 }
 
-function sendVideoToSRPCOM(url, quality, title) {
-  const query = new URLSearchParams({
+async function sendVideoToSRPCOM(url, quality, title, options = {}) {
+  const cookies = options.cookies || (await getCookiesForUrl(url));
+  const payload = {
     url: url,
-    quality: quality,
-    title: title
-  }).toString();
+    quality: quality || "best",
+    title: title || "",
+    cookies: cookies || "",
+    referer: options.referer || url,
+    user_agent: navigator.userAgent || ""
+  };
 
-  fetch(`${SERVER_BASE}/download_video?${query}`, { method: "GET" })
+  fetch(`${SERVER_BASE}/download_video`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  })
     .then((res) => res.json())
     .catch((err) => {
-      console.warn("Could not reach SRPCOM Download Manager for video download. Pastikan aplikasi SRPCOM terbuka!", err);
+      // Fallback to GET query params
+      const query = new URLSearchParams({
+        url: url,
+        quality: quality,
+        title: title,
+        cookies: cookies || "",
+        referer: options.referer || url
+      }).toString();
+      fetch(`${SERVER_BASE}/download_video?${query}`).catch(() => {});
     });
 }

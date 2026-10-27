@@ -28,7 +28,9 @@ document.addEventListener("click", (e) => {
     chrome.runtime.sendMessage({
       action: "download",
       url: link.href,
-      filename: link.download || ""
+      filename: link.download || "",
+      cookies: document.cookie || "",
+      referer: window.location.href
     });
     showToast("Mengirim unduhan ke SRPCOM Download Manager...");
   }
@@ -193,14 +195,23 @@ function getPageVideoTitle() {
 }
 
 function triggerVideoDownload(quality) {
-  const videoUrl = window.location.href;
+  let videoUrl = window.location.href;
+  const isYouTube = window.location.hostname.includes("youtube.com") || window.location.hostname.includes("youtu.be");
+  const activeVideo = document.querySelector("video");
+  
+  // If not YouTube and video element has direct http/https stream/mp4, prefer direct src if available
+  if (!isYouTube && activeVideo && activeVideo.currentSrc && activeVideo.currentSrc.startsWith("http")) {
+    videoUrl = activeVideo.currentSrc;
+  }
   const videoTitle = getPageVideoTitle();
 
   chrome.runtime.sendMessage({
     action: "download_video",
     url: videoUrl,
     quality: quality,
-    title: videoTitle
+    title: videoTitle,
+    cookies: document.cookie || "",
+    referer: window.location.href
   });
 
   showToast("🚀 Mengirim unduhan ke SRPCOM Download Manager...");

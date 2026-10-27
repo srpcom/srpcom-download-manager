@@ -5,6 +5,7 @@ import math
 import shutil
 import urllib.parse
 import threading
+import collections
 from typing import Callable, Optional, Dict, List
 import requests
 
@@ -16,6 +17,7 @@ except ImportError:
 
 CHUNK_SIZE = 64 * 1024  # 64 KB read buffer
 MERGE_BUFFER = 1024 * 1024  # 1 MB merge buffer
+MIN_SPLIT_SIZE = 1024 * 1024  # 1 MB threshold for Dynamic Chunk Splitting
 
 VIDEO_DOMAINS = [
     "youtube.com", "youtu.be", "vimeo.com", "dailymotion.com",
@@ -91,6 +93,8 @@ class SegmentInfo:
         self.start = start
         self.end = end
         self.downloaded = downloaded
+        self.is_active = False
+        self._is_finished = False
 
     @property
     def total(self) -> int:
@@ -98,7 +102,11 @@ class SegmentInfo:
 
     @property
     def is_finished(self) -> bool:
-        return self.downloaded >= self.total
+        return self._is_finished or (self.total > 0 and self.downloaded >= self.total)
+
+    @is_finished.setter
+    def is_finished(self, value: bool):
+        self._is_finished = bool(value)
 
 class DownloadTask:
     def __init__(
@@ -109,7 +117,10 @@ class DownloadTask:
         filename: str = "",
         connections: int = 8,
         task_type: str = "file",
-        video_quality: str = "best"
+        video_quality: str = "best",
+        cookies: str = "",
+        referer: str = "",
+        user_agent: str = ""
     ):
         self.task_id = task_id
         self.url = url
@@ -118,6 +129,9 @@ class DownloadTask:
         self.connections = connections
         self.task_type = "video" if (task_type == "video" or is_video_streaming_url(url)) else "file"
         self.video_quality = video_quality
+        self.cookies = cookies
+        self.referer = referer
+        self.user_agent = user_agent
         self.thumbnail_url = ""
         
         self.total_size = 0
@@ -129,8 +143,10 @@ class DownloadTask:
         self.speed = 0.0  # bytes per second
         self.eta = 0.0    # seconds
         self.speed_limit = 0  # 0 = unlimited, otherwise bytes/sec
+        self.speed_history = collections.deque(maxlen=60)
         
         self.segments: List[SegmentInfo] = []
+        self.segment_lock = threading.Lock()
         self.stop_event = threading.Event()
         self.worker_threads: List[threading.Thread] = []
         
@@ -162,7 +178,18 @@ class DownloadTask:
                         'quiet': True,
                         'no_warnings': True,
                         'extract_flat': True,
+                        'noplaylist': True,
                     }
+                    http_headers = {}
+                    if self.user_agent:
+                        http_headers['User-Agent'] = self.user_agent
+                    if self.referer:
+                        http_headers['Referer'] = self.referer
+                    if self.cookies:
+                        http_headers['Cookie'] = self.cookies
+                    if http_headers:
+                        ydl_opts['http_headers'] = http_headers
+
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                         info = ydl.extract_info(self.url, download=False)
                         if info:
@@ -177,8 +204,12 @@ class DownloadTask:
                     print(f"yt-dlp inspect error: {e}")
             
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "User-Agent": self.user_agent or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
+        if self.referer:
+            headers["Referer"] = self.referer
+        if self.cookies:
+            headers["Cookie"] = self.cookies
         try:
             # First try HEAD
             response = requests.head(self.url, headers=headers, allow_redirects=True, timeout=15)
@@ -261,17 +292,24 @@ class DownloadTask:
         current_pos = seg.start + seg.downloaded
 
         if current_pos > seg.end and seg.end >= seg.start:
-            return  # This segment is already complete
+            with self.segment_lock:
+                seg.is_finished = True
+                seg.is_active = False
+            return
 
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "User-Agent": self.user_agent or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
+        if self.referer:
+            headers["Referer"] = self.referer
+        if self.cookies:
+            headers["Cookie"] = self.cookies
 
         if self.supports_ranges and self.total_size > 0:
             headers["Range"] = f"bytes={current_pos}-{seg.end}"
 
         try:
-            mode = "ab" if os.path.exists(part_path) else "wb"
+            mode = "ab" if (os.path.exists(part_path) and seg.downloaded > 0) else "wb"
             with requests.get(self.url, headers=headers, stream=True, timeout=20) as resp:
                 if self.supports_ranges and resp.status_code not in (200, 206):
                     raise RuntimeError(f"HTTP Error {resp.status_code} for range request")
@@ -282,13 +320,28 @@ class DownloadTask:
                         if self.stop_event.is_set():
                             break
                         if chunk:
-                            f.write(chunk)
+                            # Dynamic check: did another thread split our remaining range and shrink seg.end?
+                            with self.segment_lock:
+                                remaining_for_seg = (seg.end - (seg.start + seg.downloaded) + 1)
+
+                            if remaining_for_seg <= 0:
+                                break
+
                             chunk_len = len(chunk)
-                            seg.downloaded += chunk_len
+                            if chunk_len > remaining_for_seg:
+                                f.write(chunk[:remaining_for_seg])
+                                seg.downloaded += remaining_for_seg
+                                break
+                            else:
+                                f.write(chunk)
+                                seg.downloaded += chunk_len
+                                if (seg.start + seg.downloaded) > seg.end:
+                                    break
 
                             # Speed Limiter
                             if self.speed_limit > 0:
-                                num_active = max(1, len(self.segments))
+                                with self.segment_lock:
+                                    num_active = max(1, sum(1 for s in self.segments if s.is_active))
                                 per_thread_limit = self.speed_limit / num_active
                                 now = time.time()
                                 elapsed = now - last_chunk_time
@@ -300,6 +353,59 @@ class DownloadTask:
         except Exception as e:
             if not self.stop_event.is_set():
                 self.error_message = f"Segment {seg.index} error: {str(e)}"
+        finally:
+            with self.segment_lock:
+                seg.is_active = False
+                if seg.end >= seg.start and (seg.start + seg.downloaded) > seg.end:
+                    seg.is_finished = True
+
+    def _segment_worker(self, worker_id: int):
+        """Worker thread executing Dynamic Chunk Splitting (work-stealing)."""
+        while not self.stop_event.is_set():
+            seg_to_download = None
+            with self.segment_lock:
+                # 1. Grab an unstarted or unfinished inactive segment
+                for s in self.segments:
+                    if not s.is_finished and not s.is_active:
+                        s.is_active = True
+                        seg_to_download = s
+                        break
+
+                # 2. Dynamic Chunk Splitting (Work-Stealing):
+                # If all segments are either finished or actively downloading,
+                # steal work from the segment with the largest remaining byte buffer!
+                if not seg_to_download and self.supports_ranges and self.total_size > 0:
+                    best_seg = None
+                    max_rem = 0
+                    for s in self.segments:
+                        if not s.is_finished and s.is_active:
+                            rem = s.end - (s.start + s.downloaded) + 1
+                            if rem > max_rem:
+                                max_rem = rem
+                                best_seg = s
+
+                    # Only split if remaining buffer >= MIN_SPLIT_SIZE (1 MB)
+                    if best_seg and max_rem >= MIN_SPLIT_SIZE:
+                        curr_pos = best_seg.start + best_seg.downloaded
+                        half = max_rem // 2
+                        new_start = curr_pos + half
+                        new_end = best_seg.end
+
+                        # Shrink the victim segment's end boundary
+                        best_seg.end = new_start - 1
+
+                        # Allocate new dynamic sub-segment
+                        new_index = len(self.segments)
+                        new_seg = SegmentInfo(new_index, new_start, new_end, 0)
+                        new_seg.is_active = True
+                        self.segments.append(new_seg)
+                        seg_to_download = new_seg
+
+            if not seg_to_download:
+                # No work available to do or steal
+                break
+
+            self._download_segment(seg_to_download)
 
     def _run_video_download(self):
         try:
@@ -354,6 +460,7 @@ class DownloadTask:
                         self.total_size = tot_bytes
                     self.speed = speed
                     self.eta = eta
+                    self.speed_history.append(speed)
 
                     now = time.time()
                     if now - last_progress_time[0] >= 0.3:
@@ -365,6 +472,14 @@ class DownloadTask:
                     if final_filename:
                         self.filename = os.path.basename(final_filename)
 
+            http_headers = {}
+            if self.user_agent:
+                http_headers['User-Agent'] = self.user_agent
+            if self.referer:
+                http_headers['Referer'] = self.referer
+            if self.cookies:
+                http_headers['Cookie'] = self.cookies
+
             ydl_opts = {
                 'format': fmt,
                 'outtmpl': outtmpl,
@@ -373,6 +488,8 @@ class DownloadTask:
                 'no_warnings': True,
                 'noplaylist': True,
             }
+            if http_headers:
+                ydl_opts['http_headers'] = http_headers
             if postprocessors:
                 ydl_opts['postprocessors'] = postprocessors
 
@@ -439,10 +556,11 @@ class DownloadTask:
 
             self.setup_segments()
 
-            # Start worker threads
+            # Start worker threads with Dynamic Chunk Splitting
+            num_workers = min(self.connections, len(self.segments))
             self.worker_threads = []
-            for seg in self.segments:
-                t = threading.Thread(target=self._download_segment, args=(seg,), daemon=True)
+            for w_id in range(num_workers):
+                t = threading.Thread(target=self._segment_worker, args=(w_id,), daemon=True)
                 t.start()
                 self.worker_threads.append(t)
 
@@ -456,12 +574,14 @@ class DownloadTask:
                 time.sleep(0.4)
                 now = time.time()
                 dt = now - last_time
-                current_bytes = sum(s.downloaded for s in self.segments)
+                with self.segment_lock:
+                    current_bytes = sum(s.downloaded for s in self.segments)
                 self.downloaded_size = current_bytes
 
                 if dt >= 0.4:
                     inst_speed = max(0.0, (current_bytes - last_bytes) / dt)
                     self.speed = (self.speed * 0.7) + (inst_speed * 0.3) if self.speed > 0 else inst_speed
+                    self.speed_history.append(self.speed)
                     remaining_bytes = max(0, self.total_size - current_bytes)
                     self.eta = (remaining_bytes / self.speed) if self.speed > 1024 else 0
                     last_bytes = current_bytes
@@ -482,7 +602,8 @@ class DownloadTask:
                 return
 
             # Check if any segment failed
-            all_done = all(s.is_finished for s in self.segments) if (self.total_size > 0 and self.supports_ranges) else True
+            with self.segment_lock:
+                all_done = all(s.is_finished for s in self.segments) if (self.total_size > 0 and self.supports_ranges) else True
             if self.error_message:
                 self.status = "Error"
                 self.speed = 0
@@ -521,10 +642,13 @@ class DownloadTask:
                 self.on_status_change(self)
 
     def _merge_files(self):
-        """Assemble all downloaded chunks into final file."""
+        """Assemble all downloaded chunks in byte-offset sorted order into final file."""
         temp_merged = self.target_file_path + ".assembling"
+        with self.segment_lock:
+            sorted_segments = sorted(self.segments, key=lambda s: s.start)
+
         with open(temp_merged, "wb") as outfile:
-            for seg in self.segments:
+            for seg in sorted_segments:
                 part_path = self.get_part_file_path(seg.index)
                 if os.path.exists(part_path):
                     with open(part_path, "rb") as infile:
@@ -547,7 +671,7 @@ class DownloadTask:
     def delete_files(self, delete_downloaded=True):
         """Delete temporary and downloaded files."""
         self.pause()
-        for seg in self.segments:
+        for seg in list(self.segments):
             part_path = self.get_part_file_path(seg.index)
             if os.path.exists(part_path):
                 try:

@@ -112,7 +112,10 @@ class DownloadManager:
         connections: int = 8,
         start_now: bool = True,
         task_type: str = "file",
-        video_quality: str = "best"
+        video_quality: str = "best",
+        cookies: str = "",
+        referer: str = "",
+        user_agent: str = ""
     ) -> DownloadTask:
         task_id = str(uuid.uuid4())[:8]
         task = DownloadTask(
@@ -122,7 +125,10 @@ class DownloadManager:
             filename=filename,
             connections=connections,
             task_type=task_type,
-            video_quality=video_quality
+            video_quality=video_quality,
+            cookies=cookies,
+            referer=referer,
+            user_agent=user_agent
         )
         task.speed_limit = self.global_speed_limit
         task.on_progress = self._handle_task_progress

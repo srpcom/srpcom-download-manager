@@ -18,7 +18,17 @@ def get_asset_path(filename: str) -> str:
     return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", filename)
 
 class AddDownloadDialog(ctk.CTkToplevel):
-    def __init__(self, parent, default_dir: str, on_submit, on_batch_submit=None, initial_quality: str = "best"):
+    def __init__(
+        self,
+        parent,
+        default_dir: str,
+        on_submit,
+        on_batch_submit=None,
+        initial_quality: str = "best",
+        cookies: str = "",
+        referer: str = "",
+        user_agent: str = ""
+    ):
         super().__init__(parent)
         self.title("Add Download - SRPCOM")
         self.geometry("580x520")
@@ -28,6 +38,9 @@ class AddDownloadDialog(ctk.CTkToplevel):
 
         self.on_submit = on_submit
         self.on_batch_submit = on_batch_submit
+        self.cookies = cookies
+        self.referer = referer
+        self.user_agent = user_agent
 
         icon_path = get_asset_path("logo.ico")
         if os.path.exists(icon_path):
@@ -522,10 +535,15 @@ class AddDownloadDialog(ctk.CTkToplevel):
 
         if self.on_submit:
             try:
-                self.on_submit(url, save_dir, filename, connections, start_now, task_type, quality)
+                self.on_submit(
+                    url, save_dir, filename, connections, start_now, task_type, quality,
+                    self.cookies, self.referer, self.user_agent
+                )
             except TypeError:
-                # Fallback if caller only accepts 5 arguments
-                self.on_submit(url, save_dir, filename, connections, start_now)
+                try:
+                    self.on_submit(url, save_dir, filename, connections, start_now, task_type, quality)
+                except TypeError:
+                    self.on_submit(url, save_dir, filename, connections, start_now)
             except Exception as e:
                 print(f"Error starting download: {e}")
                 messagebox.showerror("Error", f"Failed to start download: {e}")
