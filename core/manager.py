@@ -3,8 +3,7 @@ import json
 import uuid
 from typing import Dict, List, Optional, Callable
 from .downloader import DownloadTask, detect_category
-
-DEFAULT_DOWNLOAD_DIR = os.path.join(os.path.expanduser("~"), "Downloads")
+from .settings import DEFAULT_DOWNLOAD_DIR, get_default_connections
 
 class DownloadManager:
     def __init__(self, data_file: str = "downloads_data.json"):
@@ -109,7 +108,7 @@ class DownloadManager:
         url: str,
         save_dir: str = DEFAULT_DOWNLOAD_DIR,
         filename: str = "",
-        connections: int = 8,
+        connections: Optional[int] = None,
         start_now: bool = True,
         task_type: str = "file",
         video_quality: str = "best",
@@ -117,6 +116,8 @@ class DownloadManager:
         referer: str = "",
         user_agent: str = ""
     ) -> DownloadTask:
+        if connections is None or connections <= 0:
+            connections = get_default_connections()
         task_id = str(uuid.uuid4())[:8]
         task = DownloadTask(
             task_id=task_id,

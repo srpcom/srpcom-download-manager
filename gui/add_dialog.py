@@ -7,7 +7,7 @@ import customtkinter as ctk
 from tkinter import filedialog, messagebox
 import requests
 from core.downloader import format_size, detect_category, is_video_streaming_url, clean_filename
-from core.settings import get_remembered_folder, set_remembered_folder
+from core.settings import get_remembered_folder, set_remembered_folder, get_default_connections
 from gui.window_utils import center_window, bring_window_to_front
 
 def get_asset_path(filename: str) -> str:
@@ -186,17 +186,44 @@ class AddDownloadDialog(ctk.CTkToplevel):
         info_row = ctk.CTkFrame(frame, fg_color="transparent")
         info_row.pack(fill="x", pady=(4, 6))
 
-        conn_label = ctk.CTkLabel(info_row, text="Connections (Threads):", font=ctk.CTkFont(size=11))
-        conn_label.pack(side="left", padx=(0, 8))
+        conn_label = ctk.CTkLabel(info_row, text="Threads / Segmen:", font=ctk.CTkFont(size=11, weight="bold"))
+        conn_label.pack(side="left", padx=(0, 6))
 
+        def_conn = get_default_connections()
         self.conn_combo = ctk.CTkComboBox(
             info_row,
-            values=["1", "2", "4", "8", "16", "32"],
-            width=75,
+            values=[
+                "32 (Optimal - Max Speed)",
+                "24 (Sangat Cepat)",
+                "16 (Cepat)",
+                "8 (Standar)",
+                "4 (Hemat)",
+                "1 (Single Stream)"
+            ],
+            width=180,
             height=28
         )
-        self.conn_combo.set("8")
-        self.conn_combo.pack(side="left")
+        matched = False
+        for val in self.conn_combo._values:
+            if val.startswith(str(def_conn)):
+                self.conn_combo.set(val)
+                matched = True
+                break
+        if not matched:
+            self.conn_combo.set("32 (Optimal - Max Speed)")
+        self.conn_combo.pack(side="left", padx=(0, 6))
+
+        opt_btn = ctk.CTkButton(
+            info_row,
+            text="⚡ Optimal (Max)",
+            width=110,
+            height=28,
+            fg_color="#38A169",
+            hover_color="#2F855A",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            command=lambda: self.conn_combo.set("32 (Optimal - Max Speed)")
+        )
+        opt_btn.pack(side="left")
 
         self.size_info_label = ctk.CTkLabel(
             info_row,
@@ -501,9 +528,10 @@ class AddDownloadDialog(ctk.CTkToplevel):
 
         save_dir = self.dir_entry.get().strip()
         try:
-            connections = int(self.conn_combo.get())
-        except ValueError:
-            connections = 8
+            conn_match = re.search(r'\d+', self.conn_combo.get())
+            connections = int(conn_match.group()) if conn_match else 32
+        except Exception:
+            connections = 32
 
         if not os.path.isdir(save_dir):
             try:

@@ -217,7 +217,10 @@ class SegmentDetailDialog(ctk.CTkToplevel):
         self.size_lbl.configure(text=f"Downloaded: {down_str} of {total_str} ({pct:.1f}%)")
         self.speed_lbl.configure(text=f"Transfer Rate: {speed_str}")
         self.eta_lbl.configure(text=f"Estimated Time Left: {eta_str}")
-        self.resume_lbl.configure(text=f"Resume Capability: {'Yes (HTTP Range Supported)' if self.task.supports_ranges else 'No (Single Stream)'}")
+        if self.task.task_type == "video":
+            self.resume_lbl.configure(text=f"Resume Capability: Yes (Segmented Stream - {self.task.connections} Concurrent Threads)")
+        else:
+            self.resume_lbl.configure(text=f"Resume Capability: {'Yes (HTTP Range Supported)' if self.task.supports_ranges else 'No (Single Stream)'}")
 
         self.overall_bar.set(pct / 100.0)
 
@@ -227,6 +230,28 @@ class SegmentDetailDialog(ctk.CTkToplevel):
         # Update dynamic chunk splitting connection list
         with getattr(self.task, "segment_lock", threading.Lock()):
             segs = list(self.task.segments)
+
+        if self.task.task_type == "video" and len(segs) == 0:
+            self.seg_title.configure(text=f"Connection Threads ({self.task.connections} Threads Concurrent - Multi-thread Stream):")
+            if not hasattr(self, "_video_stream_box"):
+                self._video_stream_box = ctk.CTkFrame(self.seg_scroll, fg_color=("gray85", "gray20"), corner_radius=6)
+                self._video_stream_box.pack(fill="x", padx=4, pady=4)
+                
+                v_lbl = ctk.CTkLabel(
+                    self._video_stream_box,
+                    text=f"⚡ Video Stream Multi-threading: {self.task.connections} thread fragmen paralel berjalan simultan",
+                    font=ctk.CTkFont(size=11, weight="bold"),
+                    text_color="#38BDF8",
+                    anchor="w"
+                )
+                v_lbl.pack(fill="x", padx=10, pady=(6, 2))
+                
+                self._video_stream_bar = ctk.CTkProgressBar(self._video_stream_box, height=8, progress_color="#06B6D4")
+                self._video_stream_bar.pack(fill="x", padx=10, pady=(2, 8))
+            
+            if hasattr(self, "_video_stream_bar"):
+                self._video_stream_bar.set(pct / 100.0)
+            return
 
         active_count = sum(1 for s in segs if getattr(s, "is_active", False))
         self.seg_title.configure(text=f"Connection Threads ({active_count} Aktif / {len(segs)} Segmen - Dynamic Chunk Splitting):")

@@ -1,14 +1,16 @@
 import os
 import sys
 import subprocess
+import re
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, font as tkfont
 import customtkinter as ctk
 from PIL import Image
 from typing import Dict, Optional, List
 
 from core.downloader import DownloadTask, format_size, format_time
 from core.manager import DownloadManager, DEFAULT_DOWNLOAD_DIR
+from core.settings import get_default_connections, set_default_connections, get_column_widths, set_column_widths
 from .add_dialog import AddDownloadDialog
 from .segment_dialog import SegmentDetailDialog
 from .complete_dialog import DownloadCompleteDialog
@@ -51,122 +53,214 @@ SPEED_LIMIT_MAP = {
     "10 MB/s": 10 * 1024 * 1024
 }
 
+COLUMN_CONFIG = [
+    ("name", "File Name", 140, "w"),
+    ("size", "Size", 60, "center"),
+    ("status", "Status", 70, "center"),
+    ("progress", "Progress", 90, "center"),
+    ("speed", "Speed", 60, "center"),
+    ("eta", "Time Left", 60, "center"),
+    ("action", "Action", 50, "center"),
+]
+
+class ToolTip:
+    def __init__(self, widget, text_func):
+        self.widget = widget
+        self.text_func = text_func
+        self.tip_window = None
+        self.widget.bind("<Enter>", self.show_tip)
+        self.widget.bind("<Leave>", self.hide_tip)
+
+    def show_tip(self, event=None):
+        text = self.text_func()
+        if not text:
+            return
+        x = self.widget.winfo_rootx() + 20
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 5
+        self.tip_window = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        tw.attributes("-topmost", True)
+        lbl = tk.Label(
+            tw,
+            text=text,
+            justify="left",
+            background="#1A202C",
+            foreground="#F7FAFC",
+            relief="solid",
+            borderwidth=1,
+            font=("Segoe UI", 9),
+            padx=8,
+            pady=4
+        )
+        lbl.pack()
+
+    def hide_tip(self, event=None):
+        if self.tip_window:
+            try:
+                self.tip_window.destroy()
+            except Exception:
+                pass
+            self.tip_window = None
+
 class TaskRow(ctk.CTkFrame):
-    def __init__(self, master, task: DownloadTask, on_select, on_double_click, on_context_menu, on_action_click):
+    def __init__(
+        self,
+        master,
+        task: DownloadTask,
+        column_widths: dict,
+        on_select,
+        on_double_click,
+        on_context_menu,
+        on_action_click
+    ):
         super().__init__(master, height=52, fg_color=("gray90", "gray17"), corner_radius=6)
         self.task = task
+        self.column_widths = column_widths
         self.on_select = on_select
         self.on_double_click = on_double_click
         self.on_context_menu = on_context_menu
         self.on_action_click = on_action_click
         self.is_selected = False
+        self.cells: Dict[str, ctk.CTkFrame] = {}
 
         self.pack_propagate(False)
         self._init_ui()
         self._bind_events(self)
 
     def _init_ui(self):
-        # Left side: File Name & Category Icon (Dynamically expands)
-        left_box = ctk.CTkFrame(self, fg_color="transparent")
-        left_box.pack(side="left", fill="both", expand=True, padx=(10, 5))
+        for idx, (col_key, _, _, _) in enumerate(COLUMN_CONFIG):
+            w = self.column_widths.get(col_key, 100)
+            cell = ctk.CTkFrame(self, fg_color="transparent", width=w, height=52)
+            cell.pack(side="left", fill="y")
+            cell.pack_propagate(False)
+            self.cells[col_key] = cell
 
+            if col_key == "name":
+                icon = CATEGORY_ICONS.get(self.task.category, "📁")
+                self.name_lbl = ctk.CTkLabel(
+                    cell,
+                    text=self._get_truncated_name(w),
+                    font=ctk.CTkFont(size=12, weight="bold"),
+                    anchor="w"
+                )
+                self.name_lbl.pack(side="left", fill="both", expand=True, padx=(10, 5), pady=12)
+                ToolTip(self.name_lbl, lambda: f"{self.task.filename}\n{self.task.url}")
+
+            elif col_key == "size":
+                self.size_lbl = ctk.CTkLabel(
+                    cell,
+                    text=format_size(self.task.total_size) if self.task.total_size > 0 else "--",
+                    font=ctk.CTkFont(size=11),
+                    anchor="center"
+                )
+                self.size_lbl.pack(expand=True, fill="both")
+
+            elif col_key == "status":
+                status_color = STATUS_COLORS.get(self.task.status, "gray")
+                self.status_lbl = ctk.CTkLabel(
+                    cell,
+                    text=self.task.status,
+                    font=ctk.CTkFont(size=11, weight="bold"),
+                    text_color=status_color,
+                    anchor="center"
+                )
+                self.status_lbl.pack(expand=True, fill="both")
+
+            elif col_key == "progress":
+                self.pbar = ctk.CTkProgressBar(cell, height=8)
+                self.pbar.pack(side="top", fill="x", padx=6, pady=(15, 2))
+                self.pbar.set(self.task.progress_percentage / 100.0)
+
+                self.pct_lbl = ctk.CTkLabel(
+                    cell,
+                    text=f"{self.task.progress_percentage:.1f}%",
+                    font=ctk.CTkFont(size=10),
+                    text_color="gray"
+                )
+                self.pct_lbl.pack(side="top")
+
+            elif col_key == "speed":
+                self.speed_lbl = ctk.CTkLabel(
+                    cell,
+                    text=(format_size(int(self.task.speed)) + "/s") if self.task.status == "Downloading" else "-",
+                    font=ctk.CTkFont(size=11),
+                    anchor="center"
+                )
+                self.speed_lbl.pack(expand=True, fill="both")
+
+            elif col_key == "eta":
+                self.eta_lbl = ctk.CTkLabel(
+                    cell,
+                    text=format_time(self.task.eta) if self.task.status == "Downloading" else "-",
+                    font=ctk.CTkFont(size=11),
+                    anchor="center"
+                )
+                self.eta_lbl.pack(expand=True, fill="both")
+
+            elif col_key == "action":
+                self.quick_btn = ctk.CTkButton(
+                    cell,
+                    text="⏸" if self.task.status == "Downloading" else ("▶" if self.task.status == "Paused" else "📂"),
+                    width=32,
+                    height=28,
+                    fg_color="#3182CE" if self.task.status == "Downloading" else "#4A5568",
+                    hover_color="#2B6CB0",
+                    font=ctk.CTkFont(size=12),
+                    command=lambda: self.on_action_click(self.task.task_id)
+                )
+                self.quick_btn.pack(expand=True, pady=10)
+
+            # Match 4px separator spacing from header
+            if idx < len(COLUMN_CONFIG) - 1:
+                spacer = ctk.CTkFrame(self, width=4, fg_color="transparent")
+                spacer.pack(side="left", fill="y")
+
+        # Trailing fill
+        self.trailing_filler = ctk.CTkFrame(self, fg_color="transparent")
+        self.trailing_filler.pack(side="left", fill="both", expand=True)
+
+    def _get_truncated_name(self, width: int) -> str:
         icon = CATEGORY_ICONS.get(self.task.category, "📁")
-        self.name_lbl = ctk.CTkLabel(
-            left_box,
-            text=f"{icon} {self.task.filename}",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            anchor="w"
-        )
-        self.name_lbl.pack(side="left", fill="x", expand=True, pady=12)
+        full_text = f"{icon} {self.task.filename}"
+        try:
+            f = tkfont.Font(family="Segoe UI", size=10, weight="bold")
+            max_w = max(30, width - 26)
+            if f.measure(full_text) <= max_w:
+                return full_text
+            dots = "..."
+            dots_w = f.measure(dots)
+            low, high = 0, len(full_text)
+            best = ""
+            while low <= high:
+                mid = (low + high) // 2
+                sub = full_text[:mid]
+                if f.measure(sub) + dots_w <= max_w:
+                    best = sub + dots
+                    low = mid + 1
+                else:
+                    high = mid - 1
+            return best if best else full_text[:5] + dots
+        except Exception:
+            max_chars = max(8, (width - 26) // 8)
+            if len(full_text) > max_chars:
+                return full_text[:max_chars - 3] + "..."
+            return full_text
 
-        # Right side container: Fixed-width metrics to ensure pixel-perfect alignment
-        right_box = ctk.CTkFrame(self, fg_color="transparent", width=520)
-        right_box.pack(side="right", fill="y", padx=(0, 6))
-        right_box.pack_propagate(False)
-
-        # 1. Size (Width 75)
-        self.size_lbl = ctk.CTkLabel(
-            right_box,
-            text=format_size(self.task.total_size) if self.task.total_size > 0 else "--",
-            width=75,
-            font=ctk.CTkFont(size=11),
-            anchor="center"
-        )
-        self.size_lbl.pack(side="left", padx=2)
-
-        # 2. Status Badge (Width 85)
-        status_color = STATUS_COLORS.get(self.task.status, "gray")
-        self.status_lbl = ctk.CTkLabel(
-            right_box,
-            text=self.task.status,
-            width=85,
-            font=ctk.CTkFont(size=11, weight="bold"),
-            text_color=status_color,
-            anchor="center"
-        )
-        self.status_lbl.pack(side="left", padx=2)
-
-        # 3. Progress Bar & % (Width 140)
-        prog_box = ctk.CTkFrame(right_box, fg_color="transparent", width=140)
-        prog_box.pack(side="left", fill="y", padx=3)
-        prog_box.pack_propagate(False)
-
-        self.pbar = ctk.CTkProgressBar(prog_box, height=8)
-        self.pbar.pack(side="top", fill="x", pady=(15, 2))
-        self.pbar.set(self.task.progress_percentage / 100.0)
-
-        self.pct_lbl = ctk.CTkLabel(
-            prog_box,
-            text=f"{self.task.progress_percentage:.1f}%",
-            font=ctk.CTkFont(size=10),
-            text_color="gray"
-        )
-        self.pct_lbl.pack(side="top")
-
-        # 4. Speed (Width 75)
-        self.speed_lbl = ctk.CTkLabel(
-            right_box,
-            text=(format_size(int(self.task.speed)) + "/s") if self.task.status == "Downloading" else "-",
-            width=75,
-            font=ctk.CTkFont(size=11),
-            anchor="center"
-        )
-        self.speed_lbl.pack(side="left", padx=2)
-
-        # 5. Time Left (Width 75)
-        self.eta_lbl = ctk.CTkLabel(
-            right_box,
-            text=format_time(self.task.eta) if self.task.status == "Downloading" else "-",
-            width=75,
-            font=ctk.CTkFont(size=11),
-            anchor="center"
-        )
-        self.eta_lbl.pack(side="left", padx=2)
-
-        # 6. Quick Action Button (Width 60)
-        act_box = ctk.CTkFrame(right_box, fg_color="transparent", width=60)
-        act_box.pack(side="left", fill="y", padx=(2, 4))
-        act_box.pack_propagate(False)
-
-        self.quick_btn = ctk.CTkButton(
-            act_box,
-            text="⏸" if self.task.status == "Downloading" else ("▶" if self.task.status == "Paused" else "📂"),
-            width=32,
-            height=28,
-            fg_color="#3182CE" if self.task.status == "Downloading" else "#4A5568",
-            hover_color="#2B6CB0",
-            font=ctk.CTkFont(size=12),
-            command=lambda: self.on_action_click(self.task.task_id)
-        )
-        self.quick_btn.pack(expand=True, pady=10)
+    def update_column_width(self, col_key: str, width: int):
+        self.column_widths[col_key] = width
+        if col_key in self.cells:
+            self.cells[col_key].configure(width=width)
+            if col_key == "name":
+                self.name_lbl.configure(text=self._get_truncated_name(width))
 
     def _bind_events(self, widget):
-        if widget is not self.quick_btn:
+        if widget is not getattr(self, "quick_btn", None):
             widget.bind("<Button-1>", lambda e: self.on_select(self.task.task_id))
             widget.bind("<Double-Button-1>", lambda e: self.on_double_click(self.task.task_id))
             widget.bind("<Button-3>", lambda e: self.on_context_menu(e, self.task.task_id))
         for child in widget.winfo_children():
-            if child is not self.quick_btn:
+            if child is not getattr(self, "quick_btn", None):
                 self._bind_events(child)
 
     def set_selected(self, selected: bool):
@@ -177,8 +271,10 @@ class TaskRow(ctk.CTkFrame):
             self.configure(border_width=0, fg_color=("gray90", "gray17"))
 
     def update_values(self):
-        icon = CATEGORY_ICONS.get(self.task.category, "📁")
-        self.name_lbl.configure(text=f"{icon} {self.task.filename}")
+        w = self.cells["name"].winfo_width()
+        if w <= 1:
+            w = self.column_widths.get("name", 300)
+        self.name_lbl.configure(text=self._get_truncated_name(w))
         self.size_lbl.configure(text=format_size(self.task.total_size) if self.task.total_size > 0 else "--")
         
         status_color = STATUS_COLORS.get(self.task.status, "gray")
@@ -213,6 +309,8 @@ class MainWindow(ctk.CTk):
         self.current_filter = "All"
         self.search_query = ""
         self.row_widgets: Dict[str, TaskRow] = {}
+        self.column_widths = get_column_widths()
+        self.header_cells: Dict[str, ctk.CTkFrame] = {}
 
         self.title("SRPCOM Download Manager")
         self.geometry("1080x660")
@@ -369,9 +467,35 @@ class MainWindow(ctk.CTk):
         )
         ext_btn.pack(side="left", padx=3)
 
-        # Right side of toolbar: Speed Limiter
+        # Right side of toolbar: Speed Limiter & Threads Limiter
+        # 1. Threads / Segments Selector
+        threads_box = ctk.CTkFrame(tb, fg_color="transparent")
+        threads_box.pack(side="right", padx=(0, 10))
+
+        threads_lbl = ctk.CTkLabel(threads_box, text="🚀 Threads:", font=ctk.CTkFont(size=11, weight="bold"))
+        threads_lbl.pack(side="left", padx=(0, 4))
+
+        def_conns = get_default_connections()
+        self.threads_combo = ctk.CTkComboBox(
+            threads_box,
+            values=["32 (Optimal)", "24 Threads", "16 Threads", "8 Threads", "4 Threads", "1 Thread"],
+            width=125,
+            height=30,
+            command=self._on_toolbar_threads_change
+        )
+        matched = False
+        for v in self.threads_combo._values:
+            if v.startswith(str(def_conns)):
+                self.threads_combo.set(v)
+                matched = True
+                break
+        if not matched:
+            self.threads_combo.set("32 (Optimal)")
+        self.threads_combo.pack(side="left")
+
+        # 2. Speed Limiter
         speed_box = ctk.CTkFrame(tb, fg_color="transparent")
-        speed_box.pack(side="right", padx=(0, 15))
+        speed_box.pack(side="right", padx=(0, 8))
 
         speed_lbl = ctk.CTkLabel(speed_box, text="⚡ Speed Limit:", font=ctk.CTkFont(size=11, weight="bold"))
         speed_lbl.pack(side="left", padx=(0, 5))
@@ -461,25 +585,40 @@ class MainWindow(ctk.CTk):
         self.search_entry.bind("<KeyRelease>", self._on_search_change)
 
         # Header Row
-        header = ctk.CTkFrame(main_box, height=34, fg_color=("gray80", "gray22"), corner_radius=6)
-        header.pack(fill="x", padx=10, pady=(2, 4))
-        header.pack_propagate(False)
+        self.header = ctk.CTkFrame(main_box, height=34, fg_color=("gray80", "gray22"), corner_radius=6)
+        self.header.pack(fill="x", padx=10, pady=(2, 4))
+        self.header.pack_propagate(False)
 
-        # Left: File Name (expands)
-        left_h = ctk.CTkLabel(header, text="File Name", font=ctk.CTkFont(size=11, weight="bold"), anchor="w")
-        left_h.pack(side="left", fill="x", expand=True, padx=(10, 5))
+        self.header_cells.clear()
+        for idx, (col_key, title, min_w, align) in enumerate(COLUMN_CONFIG):
+            w = self.column_widths.get(col_key, 100)
+            h_cell = ctk.CTkFrame(self.header, fg_color="transparent", width=w, height=34)
+            h_cell.pack(side="left", fill="y")
+            h_cell.pack_propagate(False)
+            self.header_cells[col_key] = h_cell
 
-        # Right: Fixed width container (520px matching row)
-        right_h = ctk.CTkFrame(header, fg_color="transparent", width=520)
-        right_h.pack(side="right", fill="y", padx=(0, 6))
-        right_h.pack_propagate(False)
+            lbl = ctk.CTkLabel(
+                h_cell,
+                text=title,
+                font=ctk.CTkFont(size=11, weight="bold"),
+                anchor=align
+            )
+            lbl.pack(fill="both", expand=True, padx=4)
 
-        ctk.CTkLabel(right_h, text="Size", width=75, anchor="center", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=2)
-        ctk.CTkLabel(right_h, text="Status", width=85, anchor="center", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=2)
-        ctk.CTkLabel(right_h, text="Progress", width=140, anchor="center", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=3)
-        ctk.CTkLabel(right_h, text="Speed", width=75, anchor="center", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=2)
-        ctk.CTkLabel(right_h, text="Time Left", width=75, anchor="center", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=2)
-        ctk.CTkLabel(right_h, text="Action", width=60, anchor="center", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(2, 4))
+            # Draggable column separator
+            if idx < len(COLUMN_CONFIG) - 1:
+                sep = ctk.CTkFrame(self.header, width=4, fg_color=("gray70", "gray35"), cursor="sb_h_double_arrow")
+                sep.pack(side="left", fill="y")
+
+                sep.bind("<Enter>", lambda e, s=sep: s.configure(fg_color="#3182CE"))
+                sep.bind("<Leave>", lambda e, s=sep: s.configure(fg_color=("gray70", "gray35")))
+                sep.bind("<Button-1>", lambda e, k=col_key: self._start_column_resize(e, k))
+                sep.bind("<B1-Motion>", lambda e, k=col_key: self._on_column_resize(e, k))
+                sep.bind("<ButtonRelease-1>", lambda e, k=col_key: self._end_column_resize(e, k))
+
+        # Trailing fill
+        self.header_filler = ctk.CTkFrame(self.header, fg_color="transparent")
+        self.header_filler.pack(side="left", fill="both", expand=True)
 
         # Scrollable Task List
         self.scroll_list = ctk.CTkScrollableFrame(main_box, fg_color="transparent")
@@ -496,6 +635,43 @@ class MainWindow(ctk.CTk):
         self.context_menu.add_separator()
         self.context_menu.add_command(label="🗑 Delete from List", command=lambda: self._delete_task(delete_file=False))
         self.context_menu.add_command(label="🔥 Delete File from Disk", command=lambda: self._delete_task(delete_file=True))
+
+    def _start_column_resize(self, event, col_key: str):
+        self._resize_col = col_key
+        self._resize_start_x = event.x_root
+        self._resize_start_w = self.column_widths.get(col_key, 100)
+
+    def _on_column_resize(self, event, col_key: str):
+        if not hasattr(self, "_resize_col") or self._resize_col != col_key:
+            return
+        delta = event.x_root - self._resize_start_x
+        min_w = 60
+        for k, _, mw, _ in COLUMN_CONFIG:
+            if k == col_key:
+                min_w = mw
+                break
+        new_w = max(min_w, self._resize_start_w + delta)
+        self.column_widths[col_key] = new_w
+
+        if col_key in self.header_cells:
+            self.header_cells[col_key].configure(width=new_w)
+
+        for row in self.row_widgets.values():
+            row.update_column_width(col_key, new_w)
+
+    def _end_column_resize(self, event, col_key: str):
+        set_column_widths(self.column_widths)
+        if hasattr(self, "_resize_col"):
+            del self._resize_col
+
+    def _on_toolbar_threads_change(self, choice: str):
+        m = re.search(r'\d+', choice)
+        val = int(m.group()) if m else 32
+        set_default_connections(val)
+        if self.selected_task_id:
+            task = self.manager.tasks.get(self.selected_task_id)
+            if task and task.status != "Completed":
+                task.connections = val
 
     def _on_speed_limit_change(self, choice: str):
         limit_bps = SPEED_LIMIT_MAP.get(choice, 0)
@@ -535,6 +711,7 @@ class MainWindow(ctk.CTk):
             row = TaskRow(
                 self.scroll_list,
                 task=task,
+                column_widths=self.column_widths,
                 on_select=self._select_task,
                 on_double_click=self._handle_double_click,
                 on_context_menu=self._show_context_menu,
@@ -674,14 +851,16 @@ class MainWindow(ctk.CTk):
         url: str,
         save_dir: str,
         filename: str,
-        connections: int,
-        start_now: bool,
+        connections: Optional[int] = None,
+        start_now: bool = True,
         task_type: str = "file",
         video_quality: str = "best",
         cookies: str = "",
         referer: str = "",
         user_agent: str = ""
     ):
+        if connections is None or connections <= 0:
+            connections = get_default_connections()
         task = self.manager.add_task(
             url=url,
             save_dir=save_dir,
@@ -698,12 +877,13 @@ class MainWindow(ctk.CTk):
         self._select_task(task.task_id)
 
     def _create_batch_download(self, urls: List[str], save_dir: str):
+        def_conn = get_default_connections()
         for url in urls:
             self.manager.add_task(
                 url=url,
                 save_dir=save_dir,
                 filename="",
-                connections=8,
+                connections=def_conn,
                 start_now=True
             )
         self._refresh_task_rows()

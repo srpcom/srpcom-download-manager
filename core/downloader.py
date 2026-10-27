@@ -115,7 +115,7 @@ class DownloadTask:
         url: str,
         save_dir: str,
         filename: str = "",
-        connections: int = 8,
+        connections: int = 32,
         task_type: str = "file",
         video_quality: str = "best",
         cookies: str = "",
@@ -487,6 +487,7 @@ class DownloadTask:
                 'quiet': True,
                 'no_warnings': True,
                 'noplaylist': True,
+                'concurrent_fragment_downloads': max(1, min(32, self.connections)),
             }
             if http_headers:
                 ydl_opts['http_headers'] = http_headers
