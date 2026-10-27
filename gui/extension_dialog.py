@@ -220,6 +220,9 @@ class BrowserExtensionDialog(ctk.CTkToplevel):
             messagebox.showerror("Error", f"Gagal meluncurkan Edge: {e}")
 
     def _open_ext_folder(self):
-        folder = get_ext_path()
+        folder = os.path.normpath(get_ext_path())
         os.makedirs(folder, exist_ok=True)
-        subprocess.Popen(f'explorer "{folder}"')
+        try:
+            os.startfile(folder)
+        except Exception:
+            subprocess.Popen(f'explorer.exe "{folder}"')

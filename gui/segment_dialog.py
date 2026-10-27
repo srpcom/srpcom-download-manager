@@ -62,6 +62,25 @@ class SegmentDetailDialog(ctk.CTkToplevel):
         self.resume_lbl = ctk.CTkLabel(info_box, text="", anchor="w", font=ctk.CTkFont(size=12))
         self.resume_lbl.pack(fill="x", padx=15, pady=1)
 
+        self.threads_lbl = ctk.CTkLabel(
+            info_box,
+            text="",
+            anchor="w",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color="#06B6D4"
+        )
+        self.threads_lbl.pack(fill="x", padx=15, pady=(1, 3))
+
+        self.error_lbl = ctk.CTkLabel(
+            info_box,
+            text="",
+            anchor="w",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color="#EF4444",
+            wraplength=600,
+            justify="left"
+        )
+
         # Overall Progress Bar
         self.overall_bar = ctk.CTkProgressBar(self, height=12)
         self.overall_bar.pack(fill="x", padx=20, pady=(8, 4))
@@ -213,7 +232,16 @@ class SegmentDetailDialog(ctk.CTkToplevel):
         down_str = format_size(self.task.downloaded_size)
         total_str = format_size(self.task.total_size) if self.task.total_size > 0 else "Unknown"
 
-        self.status_lbl.configure(text=f"Status: {self.task.status}")
+        status_color = "#E53E3E" if self.task.status == "Error" else "#38A169" if self.task.status == "Completed" else "#3182CE"
+        self.status_lbl.configure(text=f"Status: {self.task.status}", text_color=status_color)
+        if getattr(self.task, "error_message", ""):
+            self.error_lbl.configure(text=f"❌ Error Detail: {self.task.error_message}")
+            if not self.error_lbl.winfo_ismapped():
+                self.error_lbl.pack(fill="x", padx=15, pady=(1, 4))
+        else:
+            if self.error_lbl.winfo_ismapped():
+                self.error_lbl.pack_forget()
+
         self.size_lbl.configure(text=f"Downloaded: {down_str} of {total_str} ({pct:.1f}%)")
         self.speed_lbl.configure(text=f"Transfer Rate: {speed_str}")
         self.eta_lbl.configure(text=f"Estimated Time Left: {eta_str}")
@@ -232,6 +260,9 @@ class SegmentDetailDialog(ctk.CTkToplevel):
             segs = list(self.task.segments)
 
         if self.task.task_type == "video" and len(segs) == 0:
+            self.threads_lbl.configure(
+                text=f"Jumlah Thread: {self.task.connections} Concurrent Stream Threads (Akselerasi Fragmen Video)"
+            )
             self.seg_title.configure(text=f"Connection Threads ({self.task.connections} Threads Concurrent - Multi-thread Stream):")
             if not hasattr(self, "_video_stream_box"):
                 self._video_stream_box = ctk.CTkFrame(self.seg_scroll, fg_color=("gray85", "gray20"), corner_radius=6)
@@ -251,9 +282,14 @@ class SegmentDetailDialog(ctk.CTkToplevel):
             
             if hasattr(self, "_video_stream_bar"):
                 self._video_stream_bar.set(pct / 100.0)
+            self.after(500, self._update_loop)
             return
 
         active_count = sum(1 for s in segs if getattr(s, "is_active", False))
+        finished_count = sum(1 for s in segs if getattr(s, "is_finished", False))
+        self.threads_lbl.configure(
+            text=f"Jumlah Thread: {active_count} Aktif / {self.task.connections} Max Threads ({len(segs)} Segmen, {finished_count} Selesai - Dynamic Chunk Splitting)"
+        )
         self.seg_title.configure(text=f"Connection Threads ({active_count} Aktif / {len(segs)} Segmen - Dynamic Chunk Splitting):")
 
         # Grow segment rows if new sub-segments were created dynamically

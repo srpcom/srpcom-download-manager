@@ -1,5 +1,46 @@
+import os
 import sys
+import subprocess
 import customtkinter as ctk
+
+def open_folder_and_select(file_path: str, save_dir: str = ""):
+    """
+    Open Windows File Explorer with the downloaded file selected/highlighted,
+    or open its containing folder if the file is not yet assembled or missing.
+    Normalizes Windows backslashes so Explorer never misinterprets forward slashes
+    as command switches and falls back to Desktop.
+    """
+    norm_file = os.path.normpath(file_path) if file_path else ""
+    norm_dir = os.path.normpath(save_dir) if save_dir else ""
+
+    # Priority 1: If target file exists on disk, open Explorer and select it
+    if norm_file and os.path.exists(norm_file):
+        try:
+            subprocess.Popen(f'explorer.exe /select,"{norm_file}"')
+            return
+        except Exception:
+            pass
+
+    # Priority 2: If folder exists, open folder directly
+    folder = norm_dir if (norm_dir and os.path.isdir(norm_dir)) else (os.path.dirname(norm_file) if norm_file else "")
+    if folder and os.path.isdir(folder):
+        try:
+            os.startfile(folder)
+            return
+        except Exception:
+            try:
+                subprocess.Popen(f'explorer.exe "{folder}"')
+                return
+            except Exception:
+                pass
+
+    # Priority 3: Fallback to standard Downloads folder
+    user_downloads = os.path.normpath(os.path.expanduser("~/Downloads"))
+    if os.path.isdir(user_downloads):
+        try:
+            os.startfile(user_downloads)
+        except Exception:
+            subprocess.Popen(f'explorer.exe "{user_downloads}"')
 
 def center_window(window, width: int = 580, height: int = 520):
     """Center a window on the current screen."""

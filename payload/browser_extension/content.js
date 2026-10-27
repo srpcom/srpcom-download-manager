@@ -179,18 +179,41 @@ function createVideoGrabber() {
 }
 
 function getPageVideoTitle() {
-  const ytHeader = document.querySelector("h1.ytd-watch-metadata yt-formatted-string") ||
-                   document.querySelector("h1.title yt-formatted-string") ||
-                   document.querySelector("#title h1");
-  if (ytHeader && ytHeader.textContent && ytHeader.textContent.trim()) {
-    return ytHeader.textContent.trim();
+  const isYouTube = window.location.hostname.includes("youtube.com") || window.location.hostname.includes("youtu.be");
+
+  // 1. YouTube specific title detection
+  if (isYouTube) {
+    // Priority A: Main video title element in YouTube primary view (NOT playlist panels)
+    const ytPrimary = document.querySelector("ytd-watch-metadata #title h1 yt-formatted-string") ||
+                      document.querySelector("#above-the-fold #title h1 yt-formatted-string") ||
+                      document.querySelector("#below #title h1 yt-formatted-string");
+    if (ytPrimary && ytPrimary.textContent && ytPrimary.textContent.trim()) {
+      return ytPrimary.textContent.trim();
+    }
+
+    // Priority B: Document title (clean and universally reliable on YouTube)
+    if (document.title) {
+      let t = document.title.replace(/\s*-\s*YouTube\s*$/i, "").trim();
+      t = t.replace(/^\(\d+\)\s*/, "").replace(/^[🔴▶\s]+/, "").trim();
+      if (t && t.toLowerCase() !== "youtube") {
+        return t;
+      }
+    }
   }
 
+  // 2. Generic document.title
   if (document.title) {
-    let t = document.title.replace(/\s*-\s*YouTube\s*$/i, "").trim();
+    let t = document.title.replace(/\s*-\s*(YouTube|Vimeo|Dailymotion|Facebook)\s*$/i, "").trim();
     t = t.replace(/^\(\d+\)\s*/, "").replace(/^[🔴▶\s]+/, "").trim();
     if (t) return t;
   }
+
+  // 3. Fallback generic headers
+  const genericH1 = document.querySelector("h1");
+  if (genericH1 && genericH1.textContent && genericH1.textContent.trim()) {
+    return genericH1.textContent.trim();
+  }
+
   return "";
 }
 
@@ -199,8 +222,16 @@ function triggerVideoDownload(quality) {
   const isYouTube = window.location.hostname.includes("youtube.com") || window.location.hostname.includes("youtu.be");
   const activeVideo = document.querySelector("video");
   
-  // If not YouTube and video element has direct http/https stream/mp4, prefer direct src if available
-  if (!isYouTube && activeVideo && activeVideo.currentSrc && activeVideo.currentSrc.startsWith("http")) {
+  // Clean YouTube watch URL to remove playlist & index noise
+  if (isYouTube && videoUrl.includes("/watch")) {
+    try {
+      const u = new URL(videoUrl);
+      const vid = u.searchParams.get("v");
+      if (vid) {
+        videoUrl = `https://www.youtube.com/watch?v=${vid}`;
+      }
+    } catch (e) {}
+  } else if (!isYouTube && activeVideo && activeVideo.currentSrc && activeVideo.currentSrc.startsWith("http")) {
     videoUrl = activeVideo.currentSrc;
   }
   const videoTitle = getPageVideoTitle();

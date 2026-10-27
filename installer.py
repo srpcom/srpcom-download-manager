@@ -10,7 +10,7 @@ from tkinter import messagebox
 
 APP_NAME = "SRPCOM Download Manager"
 APP_PUBLISHER = "SRPCOM"
-APP_VERSION = "1.2.1"
+APP_VERSION = "1.3.1"
 
 EXTENSION_IDS = [
     "jnfbdfkbbpmoanbkgablmbmklfpgacl",
@@ -485,6 +485,31 @@ class UnifiedSetupApp(ctk.CTk):
             target_ext = os.path.join(install_dir, "browser_extension")
             if os.path.exists(src_ext):
                 shutil.copytree(src_ext, target_ext, dirs_exist_ok=True)
+
+            # 3b. Copy FFmpeg & FFprobe to install_dir so the app is 100% self-contained
+            ff_src = None
+            winget_dir = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "WinGet", "Packages")
+            if os.path.isdir(winget_dir):
+                for root, dirs, files in os.walk(winget_dir):
+                    for f in files:
+                        if f.lower() == "ffmpeg.exe":
+                            ff_src = os.path.join(root, f)
+                            break
+                    if ff_src:
+                        break
+            if ff_src and os.path.exists(ff_src):
+                try:
+                    ff_dir = os.path.dirname(ff_src)
+                    for bin_name in ["ffmpeg.exe", "ffprobe.exe"]:
+                        src_bin = os.path.join(ff_dir, bin_name)
+                        if not os.path.exists(src_bin):
+                            src_bin = os.path.join(ff_dir, bin_name.upper())
+                        if os.path.exists(src_bin):
+                            dst_bin = os.path.join(install_dir, bin_name)
+                            if not os.path.exists(dst_bin) or os.path.getsize(dst_bin) != os.path.getsize(src_bin):
+                                shutil.copy2(src_bin, dst_bin)
+                except Exception as e:
+                    print(f"Error copying ffmpeg in installer: {e}")
 
             # 4. Copy this setup executable itself into install_dir for self-uninstaller!
             current_setup = sys.argv[0]

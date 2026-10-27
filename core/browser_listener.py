@@ -4,6 +4,7 @@ import socketserver
 import threading
 import urllib.parse
 from typing import Callable, Optional
+from core.downloader import is_video_streaming_url, sanitize_media_url
 
 PORT = 9876
 
@@ -68,13 +69,30 @@ class BrowserRequestHandler(http.server.BaseHTTPRequestHandler):
         user_agent = data.get("user_agent", "").strip()
 
         if path == "/add":
-            if url and BrowserRequestHandler.on_download_received:
-                try:
-                    BrowserRequestHandler.on_download_received(
-                        url, filename, cookies=cookies, referer=referer, user_agent=user_agent
-                    )
-                except TypeError:
-                    BrowserRequestHandler.on_download_received(url, filename)
+            if url:
+                if is_video_streaming_url(url):
+                    clean_url = sanitize_media_url(url)
+                    if BrowserRequestHandler.on_video_download_received:
+                        try:
+                            BrowserRequestHandler.on_video_download_received(
+                                clean_url, "best", filename, cookies=cookies, referer=referer, user_agent=user_agent
+                            )
+                        except Exception as e:
+                            print(f"Error handling video download via /add: {e}")
+                    elif BrowserRequestHandler.on_download_received:
+                        try:
+                            BrowserRequestHandler.on_download_received(
+                                clean_url, filename, cookies=cookies, referer=referer, user_agent=user_agent
+                            )
+                        except Exception as e:
+                            print(f"Error handling download via /add: {e}")
+                elif BrowserRequestHandler.on_download_received:
+                    try:
+                        BrowserRequestHandler.on_download_received(
+                            url, filename, cookies=cookies, referer=referer, user_agent=user_agent
+                        )
+                    except Exception as e:
+                        print(f"Error handling download via /add: {e}")
 
             self.send_response(200)
             self.send_header("Content-Type", "application/json")

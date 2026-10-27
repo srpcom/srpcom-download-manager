@@ -3,7 +3,7 @@ import sys
 import subprocess
 import customtkinter as ctk
 from core.downloader import DownloadTask, format_size, detect_category
-from gui.window_utils import center_window, bring_window_to_front
+from gui.window_utils import center_window, bring_window_to_front, open_folder_and_select
 
 def get_asset_path(filename: str) -> str:
     base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -81,11 +81,12 @@ class DownloadCompleteDialog(ctk.CTkToplevel):
         )
         fn_lbl.pack(fill="x", pady=(0, 4))
 
-        # Size & Category
+        # Size & Category & Connections
         size_str = format_size(self.task.total_size) if self.task.total_size > 0 else "Unknown"
+        conns_str = f"{self.task.connections} Threads ({len(self.task.segments)} Segmen)" if self.task.segments else f"{self.task.connections} Threads (Multi-thread Stream)"
         info_lbl = ctk.CTkLabel(
             body,
-            text=f"Size: {size_str}  |  Category: {self.task.category}  |  Connections: {len(self.task.segments)}",
+            text=f"Size: {size_str}  |  Category: {self.task.category}  |  Connections: {conns_str}",
             font=ctk.CTkFont(size=11),
             text_color="gray",
             anchor="w"
@@ -96,9 +97,10 @@ class DownloadCompleteDialog(ctk.CTkToplevel):
         path_box = ctk.CTkFrame(body, fg_color=("gray85", "gray20"), corner_radius=6)
         path_box.pack(fill="x", pady=(0, 10))
 
+        norm_path = os.path.normpath(self.task.target_file_path)
         path_lbl = ctk.CTkLabel(
             path_box,
-            text=f"Saved to: {self.task.target_file_path}",
+            text=f"Saved to: {norm_path}",
             font=ctk.CTkFont(size=11),
             anchor="w"
         )
@@ -143,16 +145,14 @@ class DownloadCompleteDialog(ctk.CTkToplevel):
         open_btn.pack(side="right")
 
     def _open_file(self):
-        if os.path.exists(self.task.target_file_path):
+        norm_file = os.path.normpath(self.task.target_file_path)
+        if os.path.exists(norm_file):
             try:
-                os.startfile(self.task.target_file_path)
+                os.startfile(norm_file)
             except Exception:
                 pass
         self.destroy()
 
     def _open_folder(self):
-        if os.path.exists(self.task.target_file_path):
-            subprocess.Popen(f'explorer /select,"{self.task.target_file_path}"')
-        elif os.path.isdir(self.task.save_dir):
-            subprocess.Popen(f'explorer "{self.task.save_dir}"')
+        open_folder_and_select(self.task.target_file_path, self.task.save_dir)
         self.destroy()

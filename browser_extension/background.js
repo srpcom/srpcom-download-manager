@@ -1,5 +1,36 @@
 const SERVER_BASE = "http://127.0.0.1:9876";
 
+const VIDEO_DOMAINS = [
+  "youtube.com", "youtu.be", "vimeo.com", "dailymotion.com",
+  "tiktok.com", "facebook.com", "fb.watch", "instagram.com",
+  "twitter.com", "x.com", "twitch.tv", "bilibili.com"
+];
+
+function isStreamingVideoUrl(url) {
+  if (!url) return false;
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return VIDEO_DOMAINS.some((d) => host.includes(d));
+  } catch (e) {
+    return false;
+  }
+}
+
+function cleanYouTubeUrl(url) {
+  if (!url) return url;
+  try {
+    const u = new URL(url);
+    if (u.hostname.includes("youtube.com") && u.pathname.includes("/watch")) {
+      const vid = u.searchParams.get("v");
+      if (vid) return `https://www.youtube.com/watch?v=${vid}`;
+    } else if (u.hostname.includes("youtu.be")) {
+      const vid = u.pathname.replace(/^\//, "");
+      if (vid) return `https://www.youtube.com/watch?v=${vid}`;
+    }
+  } catch (e) {}
+  return url;
+}
+
 // 1. Context Menus
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
@@ -17,16 +48,27 @@ chrome.runtime.onInstalled.addListener(() => {
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const referer = (tab && tab.url) || "";
+  let targetUrl = info.linkUrl || info.srcUrl || (tab && tab.url) || "";
+
   if (info.menuItemId === "srpcom-download-video") {
-    const videoUrl = info.srcUrl || (tab && tab.url) || "";
-    const title = (tab && tab.title) || "";
+    let videoUrl = cleanYouTubeUrl(targetUrl);
+    let title = (tab && tab.title) || "";
+    if (title) {
+      title = title.replace(/\s*-\s*YouTube\s*$/i, "").replace(/^\(\d+\)\s*/, "").replace(/^[🔴▶\s]+/, "").trim();
+    }
     if (videoUrl) {
       await sendVideoToSRPCOM(videoUrl, "best", title, { referer });
     }
   } else {
-    const targetUrl = info.linkUrl || info.srcUrl;
+    // Context menu: "srpcom-download-link"
     if (targetUrl) {
-      await sendToSRPCOM(targetUrl, "", { referer });
+      if (isStreamingVideoUrl(targetUrl)) {
+        // Automatically route YouTube and media stream links to video downloader!
+        const cleanVideoUrl = cleanYouTubeUrl(targetUrl);
+        await sendVideoToSRPCOM(cleanVideoUrl, "best", "", { referer });
+      } else {
+        await sendToSRPCOM(targetUrl, "", { referer });
+      }
     }
   }
 });

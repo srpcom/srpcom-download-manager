@@ -6,7 +6,7 @@ from PIL import Image
 from gui.window_utils import center_window, bring_window_to_front
 
 APP_NAME = "SRPCOM Download Manager"
-APP_VERSION = "1.2.1"
+APP_VERSION = "1.3.1"
 APP_RELEASE_DATE = "Oktober 2026"
 
 def get_asset_path(filename: str) -> str:
@@ -192,6 +192,29 @@ class HelpAboutDialog(ctk.CTkToplevel):
         scroll.pack(fill="both", expand=True, padx=4, pady=4)
 
         history = [
+            (
+                "Versi 1.3.1",
+                "27 Oktober 2026",
+                "#2B6CB0",
+                [
+                    "🎬 YouTube Direct Download Fix: Perbaikan komprehensif pada pengunduhan video dan audio YouTube agar berjalan mulus tanpa error.",
+                    "⚡ Otomatisasi FFmpeg & Node.js Engine: Deteksi otomatis FFmpeg dan runtime Node.js di sistem untuk penggabungan video 1080p/720p HD MP4 bebas error.",
+                    "🎯 Presisi Format Kualitas: Perbaikan deteksi resolusi combo (Best Quality, 1080p, 720p, 480p, 360p, MP3) dan deteksi judul otomatis.",
+                    "🛡️ Thread-Safe GUI & Error Logging: Komunikasi thread-safe antar-mesin dan antarmuka, dilengkapi pencatatan error mendalam di AppData.",
+                    "📂 Penyimpanan Data Permanen: Riwayat unduhan dan preferensi disimpan abadi di AppData tanpa terpengaruh folder temporary."
+                ]
+            ),
+            (
+                "Versi 1.3.0",
+                "27 Oktober 2026",
+                "#00B4D8",
+                [
+                    "📂 Perbaikan Navigasi 'Open Folder': Menjamin Windows Explorer selalu membuka folder target unduhan dan menyorot file secara akurat tanpa pernah salah membuka Desktop.",
+                    "📊 Indikator Thread Koneksi Real-time: Dialog Download Detail & Grafik Kecepatan kini secara eksplisit menampilkan jumlah thread aktif yang berjalan (baik untuk Dynamic Chunk Splitting maupun Multi-thread Fragment Video Streaming).",
+                    "⚡ Optimasi Refresh Dialog Detail: Memperbaiki loop pembaruan status video stream agar grafik kurva fluktuasi kecepatan terus berjalan dinamis secara real-time.",
+                    "🛠️ Stabilitas Installer: Memperbaiki force-close saat instalasi dan memastikan proses uninstaller berjalan bersih dan tanpa file terkunci."
+                ]
+            ),
             (
                 "Versi 1.2.1",
                 "27 Oktober 2026",

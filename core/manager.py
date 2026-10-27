@@ -37,6 +37,7 @@ class DownloadManager:
                 task.total_size = rec.get("total_size", 0)
                 task.downloaded_size = rec.get("downloaded_size", 0)
                 task.category = rec.get("category", detect_category(task.filename))
+                task.error_message = rec.get("error_message", "")
                 saved_status = rec.get("status", "Paused")
                 task.status = "Paused" if saved_status == "Downloading" else saved_status
 
@@ -65,7 +66,8 @@ class DownloadManager:
                     "total_size": task.total_size,
                     "downloaded_size": task.downloaded_size,
                     "category": task.category,
-                    "status": "Paused" if task.status == "Downloading" else task.status
+                    "status": "Paused" if task.status == "Downloading" else task.status,
+                    "error_message": getattr(task, "error_message", "")
                 })
             with open(self.data_file, "w", encoding="utf-8") as f:
                 json.dump(records, f, indent=2, ensure_ascii=False)
@@ -181,6 +183,6 @@ class DownloadManager:
 
     def resume_all(self):
         for task in self.tasks.values():
-            if task.status in ("Paused", "Queued"):
+            if task.status in ("Paused", "Queued", "Error"):
                 task.start()
         self.save_tasks()

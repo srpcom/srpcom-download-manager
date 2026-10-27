@@ -8,7 +8,10 @@ import customtkinter as ctk
 from PIL import Image
 from typing import Dict, Optional, List
 
-from core.downloader import DownloadTask, format_size, format_time
+from core.downloader import (
+    DownloadTask, format_size, format_time, is_video_streaming_url,
+    sanitize_media_url, fetch_fast_video_title, clean_filename
+)
 from core.manager import DownloadManager, DEFAULT_DOWNLOAD_DIR
 from core.settings import get_default_connections, set_default_connections, get_column_widths, set_column_widths
 from .add_dialog import AddDownloadDialog
@@ -16,7 +19,7 @@ from .segment_dialog import SegmentDetailDialog
 from .complete_dialog import DownloadCompleteDialog
 from .extension_dialog import BrowserExtensionDialog
 from .help_dialog import HelpAboutDialog
-from .window_utils import bring_window_to_front
+from .window_utils import bring_window_to_front, open_folder_and_select
 
 def get_asset_path(filename: str) -> str:
     base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -167,6 +170,7 @@ class TaskRow(ctk.CTkFrame):
                     anchor="center"
                 )
                 self.status_lbl.pack(expand=True, fill="both")
+                ToolTip(self.status_lbl, lambda: f"Status: {self.task.status}" + (f"\nPesan Error: {self.task.error_message}" if getattr(self.task, "error_message", "") else ""))
 
             elif col_key == "progress":
                 self.pbar = ctk.CTkProgressBar(cell, height=8)
@@ -200,12 +204,14 @@ class TaskRow(ctk.CTkFrame):
                 self.eta_lbl.pack(expand=True, fill="both")
 
             elif col_key == "action":
+                btn_txt = "⏸" if self.task.status == "Downloading" else ("📂" if self.task.status == "Completed" else ("🔄" if self.task.status == "Error" else "▶"))
+                btn_clr = "#3182CE" if self.task.status == "Downloading" else ("#4A5568" if self.task.status == "Completed" else ("#E53E3E" if self.task.status == "Error" else "#38A169"))
                 self.quick_btn = ctk.CTkButton(
                     cell,
-                    text="⏸" if self.task.status == "Downloading" else ("▶" if self.task.status == "Paused" else "📂"),
+                    text=btn_txt,
                     width=32,
                     height=28,
-                    fg_color="#3182CE" if self.task.status == "Downloading" else "#4A5568",
+                    fg_color=btn_clr,
                     hover_color="#2B6CB0",
                     font=ctk.CTkFont(size=12),
                     command=lambda: self.on_action_click(self.task.task_id)
@@ -295,6 +301,11 @@ class TaskRow(ctk.CTkFrame):
             self.speed_lbl.configure(text=format_size(int(self.task.speed)) + "/s")
             self.eta_lbl.configure(text=format_time(self.task.eta))
             self.quick_btn.configure(text="⏸", fg_color="#DD6B20")
+        elif self.task.status == "Error":
+            self.pbar.configure(progress_color="#E53E3E")
+            self.speed_lbl.configure(text="-")
+            self.eta_lbl.configure(text="-")
+            self.quick_btn.configure(text="🔄", fg_color="#E53E3E")
         else:
             self.pbar.configure(progress_color="#3182CE")
             self.speed_lbl.configure(text="-")
@@ -325,8 +336,9 @@ class MainWindow(ctk.CTk):
             except Exception:
                 pass
 
-        # Wire task completion callback
+        # Wire task completion & update callbacks
         self.manager.on_task_completed = self._on_download_complete
+        self.manager.on_task_updated = lambda t: self.after(0, lambda: self._on_task_updated(t))
 
         # Context menu
         self.context_menu = tk.Menu(self, tearoff=0)
@@ -764,8 +776,7 @@ class MainWindow(ctk.CTk):
         if task.status == "Downloading":
             self.manager.pause_task(task_id)
         elif task.status == "Completed":
-            if os.path.exists(task.target_file_path):
-                subprocess.Popen(f'explorer /select,"{task.target_file_path}"')
+            open_folder_and_select(task.target_file_path, task.save_dir)
         else:
             self.manager.resume_task(task_id)
 
@@ -834,10 +845,11 @@ class MainWindow(ctk.CTk):
         def show():
             bring_window_to_front(self)
             from core.settings import get_remembered_folder
-            from core.downloader import clean_filename
+            from core.downloader import clean_filename, sanitize_media_url
             cat = "Music" if quality == "audio" else "Video"
             video_dir = get_remembered_folder(cat)
 
+            clean_url = sanitize_media_url(url)
             dlg = AddDownloadDialog(
                 parent=self,
                 default_dir=video_dir,
@@ -849,7 +861,7 @@ class MainWindow(ctk.CTk):
                 user_agent=user_agent
             )
             dlg.url_entry.delete(0, "end")
-            dlg.url_entry.insert(0, url)
+            dlg.url_entry.insert(0, clean_url)
             if title and title != "sendMessage":
                 ext = "mp3" if quality == "audio" else "mp4"
                 clean_title = clean_filename(title, ext)
@@ -943,9 +955,12 @@ class MainWindow(ctk.CTk):
         if not self.selected_task_id:
             return
         task = self.manager.tasks.get(self.selected_task_id)
-        if task and os.path.exists(task.target_file_path):
+        if not task:
+            return
+        norm_file = os.path.normpath(task.target_file_path)
+        if os.path.exists(norm_file):
             try:
-                os.startfile(task.target_file_path)
+                os.startfile(norm_file)
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to open file: {e}")
         else:
@@ -955,11 +970,8 @@ class MainWindow(ctk.CTk):
         if not self.selected_task_id:
             return
         task = self.manager.tasks.get(self.selected_task_id)
-        if task and os.path.isdir(task.save_dir):
-            if os.path.exists(task.target_file_path):
-                subprocess.Popen(f'explorer /select,"{task.target_file_path}"')
-            else:
-                subprocess.Popen(f'explorer "{task.save_dir}"')
+        if task:
+            open_folder_and_select(task.target_file_path, task.save_dir)
 
     def _copy_selected_url(self):
         if not self.selected_task_id:
@@ -984,9 +996,14 @@ class MainWindow(ctk.CTk):
 
     def _on_download_complete(self, task: DownloadTask):
         def show_dialog():
+            self._refresh_task_rows()
             dlg = DownloadCompleteDialog(self, task)
             bring_window_to_front(dlg)
         self.after(0, show_dialog)
+
+    def _on_task_updated(self, task: DownloadTask):
+        if task.task_id in self.row_widgets:
+            self.row_widgets[task.task_id].update_values()
 
     def _change_appearance_mode(self, mode: str):
         ctk.set_appearance_mode(mode.lower())

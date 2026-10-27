@@ -11,7 +11,22 @@ def main():
     ctk.set_default_color_theme("blue")
 
     # Initialize manager & load tasks
-    data_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads_data.json")
+    app_data_dir = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "SRPCOM Download Manager")
+    try:
+        os.makedirs(app_data_dir, exist_ok=True)
+    except Exception:
+        pass
+    data_file = os.path.join(app_data_dir, "downloads_data.json")
+
+    # Migrate old data_file if exists in executable directory
+    old_data_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads_data.json")
+    if os.path.exists(old_data_file) and not os.path.exists(data_file):
+        try:
+            import shutil
+            shutil.copy2(old_data_file, data_file)
+        except Exception:
+            pass
+
     manager = DownloadManager(data_file=data_file)
     manager.load_tasks()
 
@@ -34,4 +49,15 @@ def main():
     app.mainloop()
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        import traceback
+        log_dir = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "SRPCOM Download Manager")
+        try:
+            os.makedirs(log_dir, exist_ok=True)
+            with open(os.path.join(log_dir, "crash.log"), "w", encoding="utf-8") as f:
+                traceback.print_exc(file=f)
+        except Exception:
+            pass
+        raise

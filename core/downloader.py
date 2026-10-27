@@ -35,6 +35,127 @@ def is_video_streaming_url(url: str) -> bool:
     except Exception:
         return False
 
+def sanitize_media_url(url: str) -> str:
+    """
+    If URL is a YouTube watch URL with playlist parameters (e.g. &list=...&index=...),
+    extract the clean watch?v=VIDEO_ID URL so yt-dlp / oEmbed fetches the exact video rather than
+    failing or confusing the title with the playlist.
+    """
+    if not url:
+        return url
+    try:
+        parsed = urllib.parse.urlparse(url)
+        host = parsed.netloc.lower()
+        if "youtube.com" in host and "/watch" in parsed.path:
+            qs = urllib.parse.parse_qs(parsed.query)
+            if "v" in qs and qs["v"]:
+                return f"https://www.youtube.com/watch?v={qs['v'][0]}"
+        elif "youtu.be" in host:
+            vid = parsed.path.strip("/")
+            if vid:
+                return f"https://www.youtube.com/watch?v={vid}"
+    except Exception:
+        pass
+    return url
+
+def find_ffmpeg_path() -> Optional[str]:
+    """Find ffmpeg binary across common locations on Windows/system."""
+    p = shutil.which("ffmpeg")
+    if p and os.path.isfile(p):
+        return p
+
+    base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    local_app_data = os.environ.get("LOCALAPPDATA", "")
+    user_prof = os.environ.get("USERPROFILE", "")
+
+    for cand in [
+        os.path.join(base_dir, "ffmpeg.exe"),
+        os.path.join(base_dir, "bin", "ffmpeg.exe"),
+        os.path.join(os.path.dirname(sys.executable), "ffmpeg.exe"),
+        os.path.join(os.path.dirname(sys.executable), "bin", "ffmpeg.exe"),
+        os.path.join(local_app_data, "Programs", "SRPCOM Download Manager", "ffmpeg.exe"),
+        os.path.join(user_prof, r"AppData\Local\Programs\SRPCOM Download Manager\ffmpeg.exe"),
+        r"C:\ffmpeg\bin\ffmpeg.exe",
+        os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "ffmpeg", "bin", "ffmpeg.exe"),
+        os.path.join(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"), "ffmpeg", "bin", "ffmpeg.exe"),
+        os.path.join(os.environ.get("ProgramData", r"C:\ProgramData"), "chocolatey", "bin", "ffmpeg.exe"),
+        os.path.join(user_prof, "scoop", "apps", "ffmpeg", "current", "bin", "ffmpeg.exe"),
+    ]:
+        if cand and os.path.isfile(cand):
+            return cand
+
+    if local_app_data:
+        winget_dir = os.path.join(local_app_data, "Microsoft", "WinGet", "Packages")
+        if os.path.isdir(winget_dir):
+            for root, dirs, files in os.walk(winget_dir):
+                for f in files:
+                    if f.lower() in ("ffmpeg.exe", "ffmpeg"):
+                        return os.path.join(root, f)
+
+    return None
+
+def find_node_path() -> Optional[str]:
+    """Find Node.js binary for solving yt-dlp JavaScript challenges."""
+    p = shutil.which("node")
+    if p and os.path.isfile(p):
+        return p
+    for cand in [
+        r"C:\Program Files\nodejs\node.exe",
+        os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "nodejs", "node.exe"),
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "node", "node.exe"),
+        os.path.join(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"), "nodejs", "node.exe"),
+    ]:
+        if cand and os.path.isfile(cand):
+            return cand
+    return None
+
+def fetch_fast_video_title(url: str, cookies: str = "") -> tuple[str, int]:
+    """
+    Quickly fetch video title and duration.
+    First tries YouTube oEmbed (takes ~1-2s), falls back to yt-dlp.
+    Returns (title, duration_seconds).
+    """
+    clean_url = sanitize_media_url(url)
+    # 1. Try YouTube oEmbed for instant YouTube title
+    if "youtube.com" in clean_url or "youtu.be" in clean_url:
+        try:
+            oembed_url = f"https://www.youtube.com/oembed?url={clean_url}&format=json"
+            resp = requests.get(oembed_url, timeout=4)
+            if resp.status_code == 200:
+                data = resp.json()
+                t = data.get("title", "").strip()
+                if t:
+                    return t, 0
+        except Exception:
+            pass
+
+    # 2. Fallback to yt-dlp
+    if HAS_YTDLP:
+        try:
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                'noplaylist': True,
+                'skip_download': True,
+                'remote_components': ['ejs:github'],
+            }
+            node_path = find_node_path()
+            if node_path:
+                ydl_opts['js_runtimes'] = {'node': {'path': node_path}}
+            if cookies:
+                ydl_opts['http_headers'] = {'Cookie': cookies}
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(clean_url, download=False)
+                if info:
+                    if info.get('_type') == 'playlist' and info.get('entries'):
+                        entry = info['entries'][0]
+                        return entry.get('title') or info.get('title') or "", entry.get('duration') or 0
+                    return info.get('title') or "", info.get('duration') or 0
+        except Exception:
+            pass
+
+    return "", 0
+
 def clean_filename(title: str, ext: str = "") -> str:
     if not title:
         return "video" + (f".{ext.lstrip('.')}" if ext else "")
@@ -124,7 +245,7 @@ class DownloadTask:
     ):
         self.task_id = task_id
         self.url = url
-        self.save_dir = save_dir
+        self.save_dir = os.path.normpath(save_dir) if save_dir else ""
         self.filename = filename
         self.connections = connections
         self.task_type = "video" if (task_type == "video" or is_video_streaming_url(url)) else "file"
@@ -157,7 +278,7 @@ class DownloadTask:
 
     @property
     def target_file_path(self) -> str:
-        return os.path.join(self.save_dir, self.filename)
+        return os.path.normpath(os.path.join(self.save_dir, self.filename))
 
     @property
     def progress_percentage(self) -> float:
@@ -166,42 +287,21 @@ class DownloadTask:
         return min(100.0, (self.downloaded_size / self.total_size) * 100.0)
 
     def get_part_file_path(self, segment_index: int) -> str:
-        return os.path.join(self.save_dir, f".{self.filename}.part_{segment_index}")
+        return os.path.normpath(os.path.join(self.save_dir, f".{self.filename}.part_{segment_index}"))
 
     def inspect_url(self) -> bool:
         """Inspect headers or video metadata to determine filename, size, and range support."""
         if self.task_type == "video" or is_video_streaming_url(self.url):
             self.task_type = "video"
-            if HAS_YTDLP:
-                try:
-                    ydl_opts = {
-                        'quiet': True,
-                        'no_warnings': True,
-                        'extract_flat': True,
-                        'noplaylist': True,
-                    }
-                    http_headers = {}
-                    if self.user_agent:
-                        http_headers['User-Agent'] = self.user_agent
-                    if self.referer:
-                        http_headers['Referer'] = self.referer
-                    if self.cookies:
-                        http_headers['Cookie'] = self.cookies
-                    if http_headers:
-                        ydl_opts['http_headers'] = http_headers
-
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        info = ydl.extract_info(self.url, download=False)
-                        if info:
-                            raw_title = info.get('title') or "video"
-                            ext = "mp3" if self.video_quality == "audio" else "mp4"
-                            self.filename = clean_filename(raw_title, ext)
-                            self.category = "Music" if self.video_quality == "audio" else "Video"
-                            self.supports_ranges = True
-                            self.thumbnail_url = info.get('thumbnail') or ""
-                            return True
-                except Exception as e:
-                    print(f"yt-dlp inspect error: {e}")
+            clean_url = sanitize_media_url(self.url)
+            self.url = clean_url
+            raw_title, _ = fetch_fast_video_title(clean_url, self.cookies)
+            if raw_title:
+                ext = "mp3" if self.video_quality == "audio" else "mp4"
+                self.filename = clean_filename(raw_title, ext)
+                self.category = "Music" if self.video_quality == "audio" else "Video"
+                self.supports_ranges = True
+                return True
             
         headers = {
             "User-Agent": self.user_agent or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -409,32 +509,63 @@ class DownloadTask:
 
     def _run_video_download(self):
         try:
+            self.url = sanitize_media_url(self.url)
             os.makedirs(self.save_dir, exist_ok=True)
             self.category = "Music" if self.video_quality == "audio" else "Video"
 
-            # Format selector based on quality
+            # 1. Locate FFmpeg & Node.js for bulletproof merging & YouTube extraction
+            ffmpeg_path = find_ffmpeg_path()
+            if ffmpeg_path:
+                ffmpeg_dir = os.path.dirname(ffmpeg_path)
+                curr_path = os.environ.get("PATH", "")
+                if ffmpeg_dir.lower() not in curr_path.lower():
+                    os.environ["PATH"] = ffmpeg_dir + os.pathsep + curr_path
+
+            node_path = find_node_path()
+            if node_path:
+                node_dir = os.path.dirname(node_path)
+                curr_path = os.environ.get("PATH", "")
+                if node_dir.lower() not in curr_path.lower():
+                    os.environ["PATH"] = node_dir + os.pathsep + curr_path
+
+            # Format selector based on quality & ffmpeg availability
+            postprocessors = []
+            merge_fmt = "mp4"
+
             if self.video_quality == "audio":
                 fmt = "bestaudio/best"
-                postprocessors = [{
-                    'key': 'FFmpegExtractAudio',
-                    'preferredcodec': 'mp3',
-                    'preferredquality': '192',
-                }]
+                merge_fmt = None
+                if ffmpeg_path:
+                    postprocessors = [{
+                        'key': 'FFmpegExtractAudio',
+                        'preferredcodec': 'mp3',
+                        'preferredquality': '192',
+                    }]
+            elif not ffmpeg_path:
+                # Without ffmpeg, request best progressive stream or best stream
+                fmt = "best[ext=mp4]/best/bestvideo+bestaudio"
+                merge_fmt = None
             elif self.video_quality == "1080":
-                fmt = "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"
-                postprocessors = []
+                fmt = "bestvideo[height<=1080]+bestaudio/best[height<=1080]/bestvideo+bestaudio/best"
             elif self.video_quality == "720":
-                fmt = "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best[height<=720]/best"
-                postprocessors = []
+                fmt = "bestvideo[height<=720]+bestaudio/best[height<=720]/bestvideo+bestaudio/best"
             elif self.video_quality == "480":
-                fmt = "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=480]+bestaudio/best[height<=480]/best"
-                postprocessors = []
+                fmt = "bestvideo[height<=480]+bestaudio/best[height<=480]/bestvideo+bestaudio/best"
             elif self.video_quality == "360":
-                fmt = "bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=360]+bestaudio/best[height<=360]/best"
-                postprocessors = []
+                fmt = "bestvideo[height<=360]+bestaudio/best[height<=360]/bestvideo+bestaudio/best"
             else:  # "best"
-                fmt = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/bestvideo+bestaudio/best"
-                postprocessors = []
+                fmt = "bestvideo+bestaudio/best"
+
+            if not self.filename or self.filename in ("video.mp4", "video.mp3", "video"):
+                raw_t, _ = fetch_fast_video_title(self.url, self.cookies)
+                if raw_t:
+                    ext = "mp3" if self.video_quality == "audio" else "mp4"
+                    self.filename = clean_filename(raw_t, ext)
+                    if self.on_status_change:
+                        try:
+                            self.on_status_change(self)
+                        except Exception:
+                            pass
 
             if self.filename and not self.filename.endswith(".part"):
                 stem = os.path.splitext(self.filename)[0]
@@ -448,36 +579,43 @@ class DownloadTask:
                 if self.stop_event.is_set():
                     raise RuntimeError("Download paused by user")
 
-                status = d.get("status")
-                if status == "downloading":
-                    dl_bytes = d.get("downloaded_bytes", 0)
-                    tot_bytes = d.get("total_bytes") or d.get("total_bytes_estimate", 0)
-                    speed = d.get("speed", 0.0) or 0.0
-                    eta = d.get("eta", 0.0) or 0.0
+                try:
+                    status = d.get("status")
+                    if status == "downloading":
+                        dl_bytes = d.get("downloaded_bytes", 0)
+                        tot_bytes = d.get("total_bytes") or d.get("total_bytes_estimate", 0)
+                        speed = d.get("speed", 0.0) or 0.0
+                        eta = d.get("eta", 0.0) or 0.0
 
-                    self.downloaded_size = dl_bytes
-                    if tot_bytes > 0:
-                        self.total_size = tot_bytes
-                    self.speed = speed
-                    self.eta = eta
-                    self.speed_history.append(speed)
+                        self.downloaded_size = dl_bytes
+                        if tot_bytes > 0:
+                            self.total_size = tot_bytes
+                        self.speed = speed
+                        self.eta = eta
+                        self.speed_history.append(speed)
 
-                    now = time.time()
-                    if now - last_progress_time[0] >= 0.3:
-                        last_progress_time[0] = now
-                        if self.on_progress:
-                            self.on_progress(self)
-                elif status == "finished":
-                    final_filename = d.get("filename")
-                    if final_filename:
-                        self.filename = os.path.basename(final_filename)
+                        now = time.time()
+                        if now - last_progress_time[0] >= 0.3:
+                            last_progress_time[0] = now
+                            if self.on_progress:
+                                try:
+                                    self.on_progress(self)
+                                except Exception:
+                                    pass
+                    elif status == "finished":
+                        final_filename = d.get("filename")
+                        if final_filename:
+                            self.filename = os.path.basename(final_filename)
+                except Exception as hook_err:
+                    if self.stop_event.is_set():
+                        raise RuntimeError("Download paused by user")
 
             http_headers = {}
             if self.user_agent:
                 http_headers['User-Agent'] = self.user_agent
             if self.referer:
                 http_headers['Referer'] = self.referer
-            if self.cookies:
+            if self.cookies and len(self.cookies) < 4096:
                 http_headers['Cookie'] = self.cookies
 
             ydl_opts = {
@@ -488,7 +626,14 @@ class DownloadTask:
                 'no_warnings': True,
                 'noplaylist': True,
                 'concurrent_fragment_downloads': max(1, min(32, self.connections)),
+                'remote_components': ['ejs:github'],
             }
+            if merge_fmt and ffmpeg_path:
+                ydl_opts['merge_output_format'] = merge_fmt
+            if ffmpeg_path:
+                ydl_opts['ffmpeg_location'] = ffmpeg_path
+            if node_path:
+                ydl_opts['js_runtimes'] = {'node': {'path': node_path}}
             if http_headers:
                 ydl_opts['http_headers'] = http_headers
             if postprocessors:
@@ -511,7 +656,10 @@ class DownloadTask:
                 self.status = "Paused"
                 self.speed = 0
                 if self.on_status_change:
-                    self.on_status_change(self)
+                    try:
+                        self.on_status_change(self)
+                    except Exception:
+                        pass
                 return
 
             self.status = "Completed"
@@ -521,19 +669,38 @@ class DownloadTask:
                 self.total_size = os.path.getsize(self.target_file_path)
                 self.downloaded_size = self.total_size
             if self.on_complete:
-                self.on_complete(self)
+                try:
+                    self.on_complete(self)
+                except Exception:
+                    pass
         except Exception as e:
+            import traceback
+            err_trace = traceback.format_exc()
+            try:
+                log_dir = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "SRPCOM Download Manager")
+                os.makedirs(log_dir, exist_ok=True)
+                with open(os.path.join(log_dir, "error.log"), "a", encoding="utf-8") as f:
+                    f.write(f"\n--- [{time.ctime()}] Video Download Error ---\nURL: {self.url}\nError: {e}\n{err_trace}\n")
+            except Exception:
+                pass
+
             if self.stop_event.is_set():
                 self.status = "Paused"
                 self.speed = 0
                 if self.on_status_change:
-                    self.on_status_change(self)
+                    try:
+                        self.on_status_change(self)
+                    except Exception:
+                        pass
             else:
                 self.status = "Error"
                 self.error_message = str(e)
                 self.speed = 0
                 if self.on_status_change:
-                    self.on_status_change(self)
+                    try:
+                        self.on_status_change(self)
+                    except Exception:
+                        pass
 
     def start(self):
         """Start or resume the download in background threads."""

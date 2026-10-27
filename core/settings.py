@@ -1,7 +1,22 @@
 import os
 import json
+import shutil
 
-SETTINGS_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "settings.json")
+APP_DATA_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "SRPCOM Download Manager")
+try:
+    os.makedirs(APP_DATA_DIR, exist_ok=True)
+except Exception:
+    pass
+
+SETTINGS_FILE = os.path.join(APP_DATA_DIR, "settings.json")
+
+# Migrate old settings.json if exists in code folder
+_old_settings = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "settings.json")
+if os.path.exists(_old_settings) and not os.path.exists(SETTINGS_FILE):
+    try:
+        shutil.copy2(_old_settings, SETTINGS_FILE)
+    except Exception:
+        pass
 
 DEFAULT_DOWNLOAD_DIR = os.path.join(os.path.expanduser("~"), "Downloads")
 DEFAULT_VIDEOS_DIR = os.path.join(os.path.expanduser("~"), "Videos") if os.path.exists(os.path.join(os.path.expanduser("~"), "Videos")) else DEFAULT_DOWNLOAD_DIR

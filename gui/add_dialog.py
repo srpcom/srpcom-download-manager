@@ -6,7 +6,7 @@ import threading
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 import requests
-from core.downloader import format_size, detect_category, is_video_streaming_url, clean_filename
+from core.downloader import format_size, detect_category, is_video_streaming_url, clean_filename, sanitize_media_url, fetch_fast_video_title
 from core.settings import get_remembered_folder, set_remembered_folder, get_default_connections
 from gui.window_utils import center_window, bring_window_to_front
 
@@ -356,14 +356,16 @@ class AddDownloadDialog(ctk.CTkToplevel):
     def _browse_folder(self):
         path = filedialog.askdirectory(initialdir=self.dir_entry.get())
         if path:
+            norm_p = os.path.normpath(path)
             self.dir_entry.delete(0, "end")
-            self.dir_entry.insert(0, path)
+            self.dir_entry.insert(0, norm_p)
 
     def _browse_folder_target(self, entry_widget):
         path = filedialog.askdirectory(initialdir=entry_widget.get())
         if path:
+            norm_p = os.path.normpath(path)
             entry_widget.delete(0, "end")
-            entry_widget.insert(0, path)
+            entry_widget.insert(0, norm_p)
 
     def _update_category(self, cat: str):
         self.current_category = cat
@@ -410,6 +412,12 @@ class AddDownloadDialog(ctk.CTkToplevel):
         self.fetch_btn.configure(state="disabled", text="Checking...")
 
         if is_video_streaming_url(url):
+            clean_url = sanitize_media_url(url)
+            if clean_url != url:
+                self.url_entry.delete(0, "end")
+                self.url_entry.insert(0, clean_url)
+                url = clean_url
+
             is_audio = "Audio" in self.quality_combo.get() or "MP3" in self.quality_combo.get()
             self._update_category("Music" if is_audio else "Video")
 
@@ -421,39 +429,33 @@ class AddDownloadDialog(ctk.CTkToplevel):
 
             self.status_label.configure(text="Mengambil info video YouTube...", text_color="#3182CE")
             def yt_inspect_worker():
-                try:
-                    import yt_dlp
-                    ydl_opts = {'quiet': True, 'no_warnings': True, 'extract_flat': True}
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        info = ydl.extract_info(url, download=False)
-                        if info:
-                            raw_title = info.get('title') or "video"
-                            q = self.quality_combo.get()
-                            ext = "mp3" if ("Audio" in q or "MP3" in q) else "mp4"
-                            clean_fn = clean_filename(raw_title, ext)
-                            dur = info.get('duration') or 0
-                            dur_str = f"{dur//60}m {dur%60}s" if dur else ""
+                raw_title, dur = fetch_fast_video_title(clean_url, getattr(self, "cookies", ""))
+                q = self.quality_combo.get()
+                ext = "mp3" if ("Audio" in q or "MP3" in q) else "mp4"
 
-                            def update_yt_ui():
-                                # ALWAYS set detected video filename
-                                self.fn_entry.delete(0, "end")
-                                self.fn_entry.insert(0, clean_fn)
-                                self.size_info_label.configure(
-                                    text=f"Stream Video ({dur_str})" if dur_str else "Stream Video (HD/MP4)",
-                                    text_color="#38A169"
-                                )
-                                self.status_label.configure(text="Judul video berhasil dideteksi!", text_color="#38A169")
-                                self.fetch_btn.configure(state="normal", text="Inspect")
-                                self.is_inspecting = False
-                            self.after(0, update_yt_ui)
-                            return
-                except Exception as e:
-                    print(f"Error inspecting video: {e}")
-                def fallback_err():
-                    self.status_label.configure(text="Video stream siap diunduh", text_color="#38A169")
+                def update_yt_ui():
+                    curr_fn = self.fn_entry.get().strip()
+                    if raw_title:
+                        clean_fn = clean_filename(raw_title, ext)
+                        self.fn_entry.delete(0, "end")
+                        self.fn_entry.insert(0, clean_fn)
+                        dur_str = f"{dur//60}m {dur%60}s" if dur else ""
+                        self.size_info_label.configure(
+                            text=f"Stream Video ({dur_str})" if dur_str else "Stream Video (HD/MP4)",
+                            text_color="#38A169"
+                        )
+                        self.status_label.configure(text="Judul video berhasil dideteksi!", text_color="#38A169")
+                    elif not curr_fn or curr_fn.lower().startswith("video."):
+                        clean_fn = clean_filename("video", ext)
+                        self.fn_entry.delete(0, "end")
+                        self.fn_entry.insert(0, clean_fn)
+                        self.status_label.configure(text="Video stream siap diunduh", text_color="#38A169")
+                    else:
+                        self.status_label.configure(text="Video stream siap diunduh", text_color="#38A169")
                     self.fetch_btn.configure(state="normal", text="Inspect")
                     self.is_inspecting = False
-                self.after(0, fallback_err)
+
+                self.after(0, update_yt_ui)
             threading.Thread(target=yt_inspect_worker, daemon=True).start()
             return
 
@@ -526,7 +528,7 @@ class AddDownloadDialog(ctk.CTkToplevel):
         if filename:
             filename = clean_filename(filename)
 
-        save_dir = self.dir_entry.get().strip()
+        save_dir = os.path.normpath(self.dir_entry.get().strip())
         try:
             conn_match = re.search(r'\d+', self.conn_combo.get())
             connections = int(conn_match.group()) if conn_match else 32
@@ -544,18 +546,27 @@ class AddDownloadDialog(ctk.CTkToplevel):
         q_text = self.quality_combo.get()
         if "Audio" in q_text or "MP3" in q_text:
             quality = "audio"
+        elif "Best Quality" in q_text:
+            quality = "best"
+        elif "1080p" in q_text:
+            quality = "1080"
         elif "720p" in q_text:
             quality = "720"
         elif "480p" in q_text:
             quality = "480"
         elif "360p" in q_text:
             quality = "360"
-        elif "1080p" in q_text:
-            quality = "1080"
         else:
             quality = "best"
 
         task_type = "video" if is_video_streaming_url(url) else "file"
+
+        # If filename is empty for video, fast fetch title now so UI shows clean name immediately
+        if not filename and task_type == "video":
+            raw_t, _ = fetch_fast_video_title(url, getattr(self, "cookies", ""))
+            if raw_t:
+                ext = "mp3" if quality == "audio" else "mp4"
+                filename = clean_filename(raw_t, ext)
 
         # Remember folder for this category if checked
         if hasattr(self, "remember_cb_var") and self.remember_cb_var.get() and os.path.isdir(save_dir):
@@ -590,7 +601,7 @@ class AddDownloadDialog(ctk.CTkToplevel):
             messagebox.showerror("Error", "No valid HTTP/HTTPS URLs found.")
             return
 
-        save_dir = self.b_dir_entry.get().strip()
+        save_dir = os.path.normpath(self.b_dir_entry.get().strip())
         os.makedirs(save_dir, exist_ok=True)
 
         if self.on_batch_submit:
