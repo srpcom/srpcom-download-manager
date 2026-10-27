@@ -51,11 +51,14 @@ def create_windows_shortcut(target_exe: str, shortcut_path: str, icon_path: str 
     {icon_line};
     $s.Save();
     '''
-    subprocess.run(
-        ["powershell", "-NoProfile", "-Command", ps_cmd],
-        check=True,
-        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-    )
+    try:
+        subprocess.run(
+            ["powershell", "-NoProfile", "-Command", ps_cmd],
+            check=False,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        )
+    except Exception as e:
+        print(f"Error creating shortcut {shortcut_path}: {e}")
 
 def register_browser_extensions(install_dir: str):
     ext_dir = os.path.join(install_dir, "browser_extension")
@@ -423,120 +426,133 @@ class UnifiedSetupApp(ctk.CTk):
         self.status_lbl.configure(text="Menyiapkan instalasi...", text_color="#3182CE")
         self.pbar.set(0.1)
 
-        # Terminate any running instances first
         try:
-            subprocess.run(["taskkill", "/F", "/T", "/IM", f"{APP_NAME}.exe"], capture_output=True, creationflags=0x08000000)
-            subprocess.run(["powershell", "-NoProfile", "-Command", "Get-Process -Name '*SRPCOM*' -ErrorAction SilentlyContinue | Stop-Process -Force"], creationflags=0x08000000)
-            time.sleep(0.4)
-        except Exception:
-            pass
+            # Terminate running app instance ONLY (do NOT kill the installer/setup itself!)
+            try:
+                subprocess.run(["taskkill", "/F", "/T", "/IM", f"{APP_NAME}.exe"], capture_output=True, creationflags=0x08000000)
+                subprocess.run(["powershell", "-NoProfile", "-Command", f"Get-Process -Name '{APP_NAME}' -ErrorAction SilentlyContinue | Where-Object {{ $_.ProcessName -notlike '*Setup*' }} | Stop-Process -Force"], creationflags=0x08000000)
+                time.sleep(0.3)
+            except Exception:
+                pass
 
-        install_dir = getattr(self, "dest_entry", None)
-        install_dir = install_dir.get().strip() if install_dir else self.default_install_dir
-        os.makedirs(install_dir, exist_ok=True)
+            install_dir = getattr(self, "dest_entry", None)
+            install_dir = install_dir.get().strip() if install_dir else self.default_install_dir
+            os.makedirs(install_dir, exist_ok=True)
 
-        self.status_lbl.configure(text="Menyalin file executable aplikasi...")
-        self.pbar.set(0.3)
+            self.status_lbl.configure(text="Menyalin file executable aplikasi...")
+            self.pbar.set(0.3)
 
-        # 1. Copy Main Executable
-        src_exe = get_bundled_file_path(f"{APP_NAME}.exe")
-        if not src_exe or not os.path.exists(src_exe):
-            messagebox.showerror("Error", "Gagal menemukan executable aplikasi!")
-            self.action_btn.configure(state="normal")
-            self.cancel_btn.configure(state="normal")
-            return
+            # 1. Copy Main Executable
+            src_exe = get_bundled_file_path(f"{APP_NAME}.exe")
+            if not src_exe or not os.path.exists(src_exe):
+                messagebox.showerror("Error", "Gagal menemukan executable aplikasi!")
+                self.action_btn.configure(state="normal")
+                self.cancel_btn.configure(state="normal")
+                return
 
-        target_exe = os.path.join(install_dir, f"{APP_NAME}.exe")
-        try:
-            shutil.copy2(src_exe, target_exe)
+            target_exe = os.path.join(install_dir, f"{APP_NAME}.exe")
+            if os.path.exists(target_exe):
+                try:
+                    os.chmod(target_exe, 0o777)
+                except Exception:
+                    pass
+            try:
+                shutil.copy2(src_exe, target_exe)
+            except Exception as e:
+                messagebox.showerror("Error", f"Gagal menyalin executable aplikasi: {e}")
+                self.action_btn.configure(state="normal")
+                self.cancel_btn.configure(state="normal")
+                return
+
+            self.pbar.set(0.5)
+            self.status_lbl.configure(text="Menyalin aset dan ekstensi...")
+
+            # 2. Copy Assets
+            target_assets = os.path.join(install_dir, "assets")
+            os.makedirs(target_assets, exist_ok=True)
+            src_ico = get_asset_path("logo.ico")
+            src_png = get_asset_path("logo.png")
+            if os.path.exists(src_ico):
+                shutil.copy2(src_ico, os.path.join(target_assets, "logo.ico"))
+            if os.path.exists(src_png):
+                shutil.copy2(src_png, os.path.join(target_assets, "logo.png"))
+
+            # 3. Copy Browser Extension
+            base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+            src_ext = os.path.join(base_dir, "browser_extension")
+            if not os.path.exists(src_ext):
+                src_ext = os.path.join(base_dir, "payload", "browser_extension")
+            target_ext = os.path.join(install_dir, "browser_extension")
+            if os.path.exists(src_ext):
+                shutil.copytree(src_ext, target_ext, dirs_exist_ok=True)
+
+            # 4. Copy this setup executable itself into install_dir for self-uninstaller!
+            current_setup = sys.argv[0]
+            target_setup = os.path.join(install_dir, "SRPCOM_Setup.exe")
+            if os.path.exists(current_setup) and os.path.abspath(current_setup).lower() != os.path.abspath(target_setup).lower():
+                try:
+                    shutil.copy2(current_setup, target_setup)
+                except Exception:
+                    pass
+
+            self.pbar.set(0.7)
+            self.status_lbl.configure(text="Mendaftarkan shortcut dan integrasi sistem...")
+
+            # 5. Create Shortcuts
+            ico_file = os.path.join(target_assets, "logo.ico")
+            chk_desk = getattr(self, "chk_desktop", None)
+            if chk_desk is None or chk_desk.get():
+                desktop_dir = os.path.join(os.path.expanduser("~"), "Desktop")
+                desktop_lnk = os.path.join(desktop_dir, f"{APP_NAME}.lnk")
+                try:
+                    create_windows_shortcut(target_exe, desktop_lnk, ico_file, description=f"Download manager by {APP_PUBLISHER}")
+                except Exception as e:
+                    print(f"Error desktop shortcut: {e}")
+
+            start_menu_dir = os.path.join(os.environ.get("APPDATA", ""), "Microsoft", "Windows", "Start Menu", "Programs")
+            chk_start = getattr(self, "chk_start_menu", None)
+            if chk_start is None or chk_start.get():
+                start_lnk = os.path.join(start_menu_dir, f"{APP_NAME}.lnk")
+                try:
+                    create_windows_shortcut(target_exe, start_lnk, ico_file, description=f"Download manager by {APP_PUBLISHER}")
+                except Exception as e:
+                    print(f"Error start menu shortcut: {e}")
+
+            # Start menu uninstaller shortcut pointing to this dual-mode setup with --uninstall
+            if os.path.exists(target_setup):
+                uninst_lnk = os.path.join(start_menu_dir, f"Uninstall {APP_NAME}.lnk")
+                try:
+                    create_windows_shortcut(target_setup, uninst_lnk, ico_file, args="--uninstall", description=f"Uninstall {APP_NAME}")
+                except Exception:
+                    pass
+
+            # 6. Register in Windows Control Panel (Settings -> Installed Apps)
+            uninstaller_exe = target_setup if os.path.exists(target_setup) else target_exe
+            register_in_control_panel(install_dir, target_exe, ico_file, uninstaller_exe)
+
+            # 7. Register Browser Extensions in Chrome and Edge Registry
+            register_browser_extensions(install_dir)
+
+            self.pbar.set(1.0)
+            self.status_lbl.configure(text="Instalasi berhasil selesai!", text_color="#38A169")
+
+            # Launch if checked
+            chk_launch = getattr(self, "chk_launch", None)
+            if chk_launch is not None and chk_launch.get():
+                try:
+                    subprocess.Popen([target_exe])
+                except Exception:
+                    pass
+
+            messagebox.showinfo("Instalasi Selesai", f"{APP_NAME} v{APP_VERSION} berhasil dipasang!")
+            self.destroy()
+
         except Exception as e:
-            messagebox.showerror("Error", f"Gagal menyalin executable aplikasi: {e}")
+            import traceback
+            err_details = traceback.format_exc()
+            messagebox.showerror("Error Instalasi", f"Terjadi kesalahan saat memasang aplikasi:\n{e}\n\nDetail:\n{err_details}")
             self.action_btn.configure(state="normal")
             self.cancel_btn.configure(state="normal")
-            return
-
-        self.pbar.set(0.5)
-        self.status_lbl.configure(text="Menyalin aset dan ekstensi...")
-
-        # 2. Copy Assets
-        target_assets = os.path.join(install_dir, "assets")
-        os.makedirs(target_assets, exist_ok=True)
-        src_ico = get_asset_path("logo.ico")
-        src_png = get_asset_path("logo.png")
-        if os.path.exists(src_ico):
-            shutil.copy2(src_ico, os.path.join(target_assets, "logo.ico"))
-        if os.path.exists(src_png):
-            shutil.copy2(src_png, os.path.join(target_assets, "logo.png"))
-
-        # 3. Copy Browser Extension
-        base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
-        src_ext = os.path.join(base_dir, "browser_extension")
-        if not os.path.exists(src_ext):
-            src_ext = os.path.join(base_dir, "payload", "browser_extension")
-        target_ext = os.path.join(install_dir, "browser_extension")
-        if os.path.exists(src_ext):
-            shutil.copytree(src_ext, target_ext, dirs_exist_ok=True)
-
-        # 4. Copy this setup executable itself into install_dir for self-uninstaller!
-        current_setup = sys.argv[0]
-        target_setup = os.path.join(install_dir, "SRPCOM_Setup.exe")
-        if os.path.exists(current_setup) and os.path.abspath(current_setup).lower() != os.path.abspath(target_setup).lower():
-            try:
-                shutil.copy2(current_setup, target_setup)
-            except Exception:
-                pass
-
-        self.pbar.set(0.7)
-        self.status_lbl.configure(text="Mendaftarkan shortcut dan integrasi sistem...")
-
-        # 5. Create Shortcuts
-        ico_file = os.path.join(target_assets, "logo.ico")
-        chk_desk = getattr(self, "chk_desktop", None)
-        if chk_desk is None or chk_desk.get():
-            desktop_dir = os.path.join(os.path.expanduser("~"), "Desktop")
-            desktop_lnk = os.path.join(desktop_dir, f"{APP_NAME}.lnk")
-            try:
-                create_windows_shortcut(target_exe, desktop_lnk, ico_file, description=f"Download manager by {APP_PUBLISHER}")
-            except Exception as e:
-                print(f"Error desktop shortcut: {e}")
-
-        start_menu_dir = os.path.join(os.environ.get("APPDATA", ""), "Microsoft", "Windows", "Start Menu", "Programs")
-        chk_start = getattr(self, "chk_start_menu", None)
-        if chk_start is None or chk_start.get():
-            start_lnk = os.path.join(start_menu_dir, f"{APP_NAME}.lnk")
-            try:
-                create_windows_shortcut(target_exe, start_lnk, ico_file, description=f"Download manager by {APP_PUBLISHER}")
-            except Exception as e:
-                print(f"Error start menu shortcut: {e}")
-
-        # Start menu uninstaller shortcut pointing to this dual-mode setup with --uninstall
-        if os.path.exists(target_setup):
-            uninst_lnk = os.path.join(start_menu_dir, f"Uninstall {APP_NAME}.lnk")
-            try:
-                create_windows_shortcut(target_setup, uninst_lnk, ico_file, args="--uninstall", description=f"Uninstall {APP_NAME}")
-            except Exception:
-                pass
-
-        # 6. Register in Windows Control Panel (Settings -> Installed Apps)
-        uninstaller_exe = target_setup if os.path.exists(target_setup) else target_exe
-        register_in_control_panel(install_dir, target_exe, ico_file, uninstaller_exe)
-
-        # 7. Register Browser Extensions in Chrome and Edge Registry
-        register_browser_extensions(install_dir)
-
-        self.pbar.set(1.0)
-        self.status_lbl.configure(text="Instalasi berhasil selesai!", text_color="#38A169")
-
-        # Launch if checked
-        chk_launch = getattr(self, "chk_launch", None)
-        if chk_launch is not None and chk_launch.get():
-            try:
-                subprocess.Popen([target_exe])
-            except Exception:
-                pass
-
-        messagebox.showinfo("Instalasi Selesai", f"{APP_NAME} v{APP_VERSION} berhasil dipasang!")
-        self.destroy()
 
     def _do_uninstall(self):
         confirm = messagebox.askyesno(
@@ -552,100 +568,108 @@ class UnifiedSetupApp(ctk.CTk):
         self.status_lbl.configure(text="Menutup proses aplikasi...", text_color="#3182CE")
         self.pbar.set(0.2)
 
-        # 1. Kill running instances
-        for proc in [f"{APP_NAME}.exe", "Uninstall.exe"]:
-            try:
-                subprocess.run(["taskkill", "/F", "/T", "/IM", proc], capture_output=True, creationflags=0x08000000)
-            except Exception:
-                pass
         try:
-            subprocess.run(["powershell", "-NoProfile", "-Command", "Get-Process -Name '*SRPCOM*' -ErrorAction SilentlyContinue | Stop-Process -Force"], creationflags=0x08000000)
-        except Exception:
-            pass
-        time.sleep(0.5)
-
-        # 2. Remove Shortcuts
-        self.status_lbl.configure(text="Menghapus shortcut...")
-        self.pbar.set(0.4)
-        desktop_dir = os.path.join(os.path.expanduser("~"), "Desktop")
-        desktop_lnk = os.path.join(desktop_dir, f"{APP_NAME}.lnk")
-        if os.path.exists(desktop_lnk):
+            # 1. Kill running instances
+            for proc in [f"{APP_NAME}.exe", "Uninstall.exe"]:
+                try:
+                    subprocess.run(["taskkill", "/F", "/T", "/IM", proc], capture_output=True, creationflags=0x08000000)
+                except Exception:
+                    pass
             try:
-                os.remove(desktop_lnk)
+                subprocess.run(["powershell", "-NoProfile", "-Command", f"Get-Process -Name '{APP_NAME}' -ErrorAction SilentlyContinue | Where-Object {{ $_.ProcessName -notlike '*Setup*' -and $_.ProcessName -notlike '*Uninstall*' }} | Stop-Process -Force"], creationflags=0x08000000)
             except Exception:
                 pass
+            time.sleep(0.4)
 
-        start_menu_dir = os.path.join(os.environ.get("APPDATA", ""), "Microsoft", "Windows", "Start Menu", "Programs")
-        for lnk_name in [f"{APP_NAME}.lnk", f"Uninstall {APP_NAME}.lnk"]:
-            s_lnk = os.path.join(start_menu_dir, lnk_name)
-            if os.path.exists(s_lnk):
+            # 2. Remove Shortcuts
+            self.status_lbl.configure(text="Menghapus shortcut...")
+            self.pbar.set(0.4)
+            desktop_dir = os.path.join(os.path.expanduser("~"), "Desktop")
+            desktop_lnk = os.path.join(desktop_dir, f"{APP_NAME}.lnk")
+            if os.path.exists(desktop_lnk):
                 try:
-                    os.remove(s_lnk)
+                    os.remove(desktop_lnk)
                 except Exception:
                     pass
 
-        # 3. Unregister from Windows Settings / Control Panel and Browser Registries
-        self.status_lbl.configure(text="Membersihkan pendaftaran sistem dan ekstensi...")
-        self.pbar.set(0.6)
-        unregister_control_panel()
-        unregister_browser_extensions()
+            start_menu_dir = os.path.join(os.environ.get("APPDATA", ""), "Microsoft", "Windows", "Start Menu", "Programs")
+            for lnk_name in [f"{APP_NAME}.lnk", f"Uninstall {APP_NAME}.lnk"]:
+                s_lnk = os.path.join(start_menu_dir, lnk_name)
+                if os.path.exists(s_lnk):
+                    try:
+                        os.remove(s_lnk)
+                    except Exception:
+                        pass
 
-        # 4. Remove all files from installation directory directly in Python
-        self.status_lbl.configure(text="Menghapus file program...")
-        self.pbar.set(0.8)
-        install_dir = self.default_install_dir
+            # 3. Unregister from Windows Settings / Control Panel and Browser Registries
+            self.status_lbl.configure(text="Membersihkan pendaftaran sistem dan ekstensi...")
+            self.pbar.set(0.6)
+            unregister_control_panel()
+            unregister_browser_extensions()
 
-        current_exe = os.path.abspath(sys.argv[0]).lower()
+            # 4. Remove all files from installation directory directly in Python
+            self.status_lbl.configure(text="Menghapus file program...")
+            self.pbar.set(0.8)
+            install_dir = self.default_install_dir
 
-        if os.path.exists(install_dir):
-            # First explicitly remove main executable so is_installed is NEVER true
-            main_exe = os.path.join(install_dir, f"{APP_NAME}.exe")
-            if os.path.exists(main_exe):
+            current_exe = os.path.abspath(sys.argv[0]).lower()
+
+            if os.path.exists(install_dir):
+                # First explicitly remove main executable so is_installed is NEVER true
+                main_exe = os.path.join(install_dir, f"{APP_NAME}.exe")
+                if os.path.exists(main_exe):
+                    try:
+                        os.chmod(main_exe, 0o777)
+                        os.remove(main_exe)
+                    except Exception as e:
+                        print(f"Error removing main exe: {e}")
+
+                for root, dirs, files in os.walk(install_dir, topdown=False):
+                    for f in files:
+                        fp = os.path.join(root, f)
+                        if fp.lower() == current_exe:
+                            continue
+                        try:
+                            os.chmod(fp, 0o777)
+                            os.remove(fp)
+                        except Exception:
+                            pass
+                    for d in dirs:
+                        dp = os.path.join(root, d)
+                        try:
+                            shutil.rmtree(dp, ignore_errors=True)
+                        except Exception:
+                            pass
+
+                # Try to remove the installation directory itself
                 try:
-                    os.chmod(main_exe, 0o777)
-                    os.remove(main_exe)
-                except Exception as e:
-                    print(f"Error removing main exe: {e}")
+                    shutil.rmtree(install_dir, ignore_errors=True)
+                except Exception:
+                    pass
 
-            for root, dirs, files in os.walk(install_dir, topdown=False):
-                for f in files:
-                    fp = os.path.join(root, f)
-                    if fp.lower() == current_exe:
-                        continue
-                    try:
-                        os.chmod(fp, 0o777)
-                        os.remove(fp)
-                    except Exception:
-                        pass
-                for d in dirs:
-                    dp = os.path.join(root, d)
-                    try:
-                        shutil.rmtree(dp, ignore_errors=True)
-                    except Exception:
-                        pass
+            # 5. In case self-uninstaller is running or delayed cleanup is needed:
+            if os.path.exists(install_dir):
+                cmd_clean = f'ping 127.0.0.1 -n 3 > nul & rmdir /s /q "{install_dir}"'
+                try:
+                    subprocess.Popen(
+                        ["cmd.exe", "/c", cmd_clean],
+                        creationflags=subprocess.CREATE_NO_WINDOW | 0x00000008,
+                        close_fds=True
+                    )
+                except Exception:
+                    pass
 
-            # Try to remove the installation directory itself
-            try:
-                shutil.rmtree(install_dir, ignore_errors=True)
-            except Exception:
-                pass
+            self.pbar.set(1.0)
+            self.status_lbl.configure(text="Uninstall berhasil selesai!", text_color="#38A169")
+            messagebox.showinfo("Uninstall Berhasil", f"{APP_NAME} telah berhasil dihapus secara bersih dari komputer Anda.")
+            self.destroy()
 
-        # 5. In case self-uninstaller is running or delayed cleanup is needed:
-        if os.path.exists(install_dir):
-            cmd_clean = f'ping 127.0.0.1 -n 3 > nul & rmdir /s /q "{install_dir}"'
-            try:
-                subprocess.Popen(
-                    ["cmd.exe", "/c", cmd_clean],
-                    creationflags=subprocess.CREATE_NO_WINDOW | 0x00000008,
-                    close_fds=True
-                )
-            except Exception:
-                pass
-
-        self.pbar.set(1.0)
-        self.status_lbl.configure(text="Uninstall berhasil selesai!", text_color="#38A169")
-        messagebox.showinfo("Uninstall Berhasil", f"{APP_NAME} telah berhasil dihapus secara bersih dari komputer Anda.")
-        self.destroy()
+        except Exception as e:
+            import traceback
+            err = traceback.format_exc()
+            messagebox.showerror("Error Uninstall", f"Terjadi kesalahan saat menghapus aplikasi:\n{e}\n\nDetail:\n{err}")
+            self.action_btn.configure(state="normal")
+            self.cancel_btn.configure(state="normal")
 
 def main():
     local_app_data = os.environ.get("LOCALAPPDATA", os.path.expanduser("~\\AppData\\Local"))
