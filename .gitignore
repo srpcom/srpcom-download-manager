@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+*.spec
+build/
+payload/SRPCOM Download Manager.exe
+dist/
+downloads_data.json
+settings.json
+*.log
