@@ -5,7 +5,10 @@ import winreg
 import customtkinter as ctk
 from tkinter import messagebox
 
-EXT_ID = "keoeiohodnbgednmclmnconnkihjlail"
+EXTENSION_IDS = [
+    "jnfbdfkpbbpmoanbkgablbmklfpgacl", # Chrome Web Store official ID
+    "keoeiohodnbgednmclmnconnkihjlail"  # Local developer unpacked ID
+]
 
 def get_ext_path() -> str:
     base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -35,16 +38,17 @@ def find_browser_exe(browser_name: str) -> str:
 
 def register_registry_now():
     ext_dir = get_ext_path()
-    for reg_path in [
-        rf"Software\Google\Chrome\Extensions\{EXT_ID}",
-        rf"Software\Microsoft\Edge\Extensions\{EXT_ID}"
-    ]:
-        try:
-            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, reg_path) as key:
-                winreg.SetValueEx(key, "path", 0, winreg.REG_SZ, ext_dir)
-                winreg.SetValueEx(key, "version", 0, winreg.REG_SZ, "1.0.0")
-        except Exception:
-            pass
+    for ext_id in EXTENSION_IDS:
+        for reg_path in [
+            rf"Software\Google\Chrome\Extensions\{ext_id}",
+            rf"Software\Microsoft\Edge\Extensions\{ext_id}"
+        ]:
+            try:
+                with winreg.CreateKey(winreg.HKEY_CURRENT_USER, reg_path) as key:
+                    winreg.SetValueEx(key, "path", 0, winreg.REG_SZ, ext_dir)
+                    winreg.SetValueEx(key, "version", 0, winreg.REG_SZ, "1.3.2")
+            except Exception:
+                pass
 
 class BrowserExtensionDialog(ctk.CTkToplevel):
     def __init__(self, parent):
@@ -117,7 +121,7 @@ class BrowserExtensionDialog(ctk.CTkToplevel):
 
         s2 = ctk.CTkLabel(
             status_box,
-            text=f"🟢 Windows Registry: TERDAFTAR OTOMATIS (ID: {EXT_ID[:8]}...)",
+            text=f"🟢 Windows Registry: TERDAFTAR OTOMATIS ({len(EXTENSION_IDS)} ID Terdaftar)",
             font=ctk.CTkFont(size=11),
             text_color="#38A169",
             anchor="w"

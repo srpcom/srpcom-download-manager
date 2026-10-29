@@ -10,10 +10,10 @@ from tkinter import messagebox
 
 APP_NAME = "SRPCOM Download Manager"
 APP_PUBLISHER = "SRPCOM"
-APP_VERSION = "1.3.1"
+APP_VERSION = "1.3.2"
 
 EXTENSION_IDS = [
-    "jnfbdfkbbpmoanbkgablmbmklfpgacl",
+    "jnfbdfkpbbpmoanbkgablbmklfpgacl",
     "keoeiohodnbgednmclmnconnkihjlail"
 ]
 
@@ -107,6 +107,23 @@ def unregister_control_panel():
     except Exception:
         pass
 
+AUTOSTART_REG_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+
+def register_autostart(target_exe: str):
+    try:
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, AUTOSTART_REG_KEY) as key:
+            cmd = f'"{target_exe}" --autostart'
+            winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, cmd)
+    except Exception as e:
+        print(f"Registry autostart error: {e}")
+
+def unregister_autostart():
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, AUTOSTART_REG_KEY, 0, winreg.KEY_SET_VALUE) as key:
+            winreg.DeleteValue(key, APP_NAME)
+    except Exception:
+        pass
+
 
 class UnifiedSetupApp(ctk.CTk):
     def __init__(self, mode: str):
@@ -118,7 +135,7 @@ class UnifiedSetupApp(ctk.CTk):
         local_app_data = os.environ.get("LOCALAPPDATA", os.path.expanduser("~\\AppData\\Local"))
         self.default_install_dir = os.path.join(local_app_data, "Programs", APP_NAME)
 
-        self.geometry("580x520")
+        self.geometry("580x545")
         self.resizable(False, False)
 
         icon_path = get_asset_path("logo.ico")
@@ -221,6 +238,10 @@ class UnifiedSetupApp(ctk.CTk):
         self.chk_start_menu = ctk.CTkCheckBox(self.body, text="Buat Shortcut di Start Menu", font=ctk.CTkFont(size=12))
         self.chk_start_menu.select()
         self.chk_start_menu.pack(anchor="w", pady=4)
+
+        self.chk_autostart = ctk.CTkCheckBox(self.body, text="Jalankan otomatis saat Windows booting (Auto-Start)", font=ctk.CTkFont(size=12))
+        self.chk_autostart.select()
+        self.chk_autostart.pack(anchor="w", pady=4)
 
         self.chk_launch = ctk.CTkCheckBox(self.body, text=f"Jalankan {APP_NAME} setelah selesai", font=ctk.CTkFont(size=12))
         self.chk_launch.select()
@@ -558,6 +579,13 @@ class UnifiedSetupApp(ctk.CTk):
             # 7. Register Browser Extensions in Chrome and Edge Registry
             register_browser_extensions(install_dir)
 
+            # 8. Register Windows Startup (Auto-Start) if checked
+            chk_auto = getattr(self, "chk_autostart", None)
+            if chk_auto is None or chk_auto.get():
+                register_autostart(target_exe)
+            else:
+                unregister_autostart()
+
             self.pbar.set(1.0)
             self.status_lbl.configure(text="Instalasi berhasil selesai!", text_color="#38A169")
 
@@ -626,11 +654,12 @@ class UnifiedSetupApp(ctk.CTk):
                     except Exception:
                         pass
 
-            # 3. Unregister from Windows Settings / Control Panel and Browser Registries
+            # 3. Unregister from Windows Settings, Run (Auto-Start), and Browser Registries
             self.status_lbl.configure(text="Membersihkan pendaftaran sistem dan ekstensi...")
             self.pbar.set(0.6)
             unregister_control_panel()
             unregister_browser_extensions()
+            unregister_autostart()
 
             # 4. Remove all files from installation directory directly in Python
             self.status_lbl.configure(text="Menghapus file program...")

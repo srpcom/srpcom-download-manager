@@ -46,6 +46,11 @@ def main():
         sys.exit(0)
 
     app.protocol("WM_DELETE_WINDOW", on_closing)
+
+    # If launched on Windows boot (--autostart / --minimized), start minimized to taskbar
+    if any(arg in sys.argv for arg in ["--autostart", "--minimized", "-minimized"]):
+        app.after(150, app.iconify)
+
     app.mainloop()
 
 if __name__ == "__main__":

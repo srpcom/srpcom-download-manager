@@ -6,7 +6,7 @@ from PIL import Image
 from gui.window_utils import center_window, bring_window_to_front
 
 APP_NAME = "SRPCOM Download Manager"
-APP_VERSION = "1.3.1"
+APP_VERSION = "1.3.2"
 APP_RELEASE_DATE = "Oktober 2026"
 
 def get_asset_path(filename: str) -> str:
@@ -192,6 +192,17 @@ class HelpAboutDialog(ctk.CTkToplevel):
         scroll.pack(fill="both", expand=True, padx=4, pady=4)
 
         history = [
+            (
+                "Versi 1.3.2",
+                "29 Oktober 2026",
+                "#C53030",
+                [
+                    "🚀 Auto-Start Windows Booting: Opsi di wizard installer untuk menjalankan SRPCOM Download Manager secara otomatis saat komputer menyala (berjalan di background / minimized siap menangkap unduhan).",
+                    "🎬 IDM-Style Floating Video Grabber: Tombol download mengambang khas IDM di pojok kanan atas video YouTube kini terpasang responsif dan tidak lagi tertutup bilah kontrol atas player.",
+                    "⚡ Tombol Download di Action Bar YouTube: Tombol baru 'Unduh SDM' disematkan langsung di deretan tombol aksi YouTube (bawah judul video) dengan pilihan resolusi instan (1080p, 720p, 480p, 360p, MP3).",
+                    "🧩 Integrasi Ekstensi Browser & SPA Fix: Mendukung deteksi dinamis navigasi YouTube SPA (Single Page Application) dan sinkronisasi ID ekstensi Chrome Web Store & Unpacked."
+                ]
+            ),
             (
                 "Versi 1.3.1",
                 "27 Oktober 2026",

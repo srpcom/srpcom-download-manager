@@ -136,7 +136,7 @@ def create_flyer():
 
     # --- TOP HEADER SECTION ---
     # Top Version Badge Pill
-    pill_text = "APLIKASI WINDOWS  •  ALTERNATIF IDM TERBAIK  •  VERSI 1.3.1 TERBARU"
+    pill_text = "APLIKASI WINDOWS  •  ALTERNATIF IDM TERBAIK  •  VERSI 1.3.2 TERBARU"
     bbox = font_badge.getbbox(pill_text)
     pw = bbox[2] - bbox[0] + 55
     ph = 36
