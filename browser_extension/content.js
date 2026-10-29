@@ -118,12 +118,14 @@ function createVideoGrabber() {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
     user-select: none !important;
     display: inline-block !important;
-    opacity: 0.95 !important;
+    opacity: 0.95;
     visibility: visible !important;
-    pointer-events: auto !important;
+    pointer-events: auto;
     margin: 0 !important;
     padding: 0 !important;
     line-height: normal !important;
+    transform: translateY(0);
+    transition: opacity 0.35s ease, transform 0.35s ease !important;
   `;
 
   panel.innerHTML = `
@@ -184,22 +186,87 @@ function createVideoGrabber() {
   const mainBtn = panel.querySelector("#sdm-btn-main");
   const menu = panel.querySelector("#sdm-dropdown-menu");
 
-  // Hover styling for main button
-  mainBtn.addEventListener("mouseenter", () => {
-    panel.style.opacity = "1";
+  // Auto-hide controller:
+  // Automatically hides the button during video watching so it doesn't disturb viewing.
+  // Smoothly fades back in when user moves the mouse over the video player.
+  let hideTimer = null;
+  let isPanelHovered = false;
+
+  function showPanel() {
+    panel.style.setProperty("opacity", "0.95", "important");
+    panel.style.setProperty("pointer-events", "auto", "important");
+    panel.style.setProperty("transform", "translateY(0)", "important");
+  }
+
+  function hidePanel() {
+    if (isPanelHovered || menu.style.display === "block") return;
+    panel.style.setProperty("opacity", "0", "important");
+    panel.style.setProperty("pointer-events", "none", "important");
+    panel.style.setProperty("transform", "translateY(-4px)", "important");
+  }
+
+  function scheduleHide(delayMs = 2800) {
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {
+      hidePanel();
+    }, delayMs);
+  }
+
+  function onPlayerActivity() {
+    showPanel();
+    scheduleHide(2800);
+  }
+
+  function onPlayerLeave() {
+    scheduleHide(800);
+  }
+
+  // Bind mouse activity listeners on video player container
+  if (targetContainer._sdm_onActivity) {
+    targetContainer.removeEventListener("mousemove", targetContainer._sdm_onActivity);
+    targetContainer.removeEventListener("mouseenter", targetContainer._sdm_onActivity);
+    targetContainer.removeEventListener("mouseleave", targetContainer._sdm_onLeave);
+  }
+  targetContainer._sdm_onActivity = onPlayerActivity;
+  targetContainer._sdm_onLeave = onPlayerLeave;
+  targetContainer.addEventListener("mousemove", onPlayerActivity);
+  targetContainer.addEventListener("mouseenter", onPlayerActivity);
+  targetContainer.addEventListener("mouseleave", onPlayerLeave);
+
+  // Bind play/pause on video element
+  const vidElem = targetContainer.querySelector("video") || document.querySelector("video");
+  if (vidElem && !vidElem._sdm_playBound) {
+    vidElem._sdm_playBound = true;
+    vidElem.addEventListener("play", onPlayerActivity);
+    vidElem.addEventListener("pause", onPlayerActivity);
+  }
+
+  // Hover styling and keeping panel visible when cursor is over the button
+  panel.addEventListener("mouseenter", () => {
+    isPanelHovered = true;
+    clearTimeout(hideTimer);
+    panel.style.setProperty("opacity", "1", "important");
     mainBtn.style.borderColor = "#ef4444";
     mainBtn.style.transform = "scale(1.02)";
   });
-  mainBtn.addEventListener("mouseleave", () => {
-    panel.style.opacity = "0.95";
+  panel.addEventListener("mouseleave", () => {
+    isPanelHovered = false;
     mainBtn.style.borderColor = "rgba(239, 68, 68, 0.8)";
     mainBtn.style.transform = "scale(1)";
+    scheduleHide(2000);
   });
 
   // Toggle dropdown on click
   mainBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    menu.style.display = menu.style.display === "block" ? "none" : "block";
+    const willOpen = menu.style.display !== "block";
+    menu.style.display = willOpen ? "block" : "none";
+    if (willOpen) {
+      clearTimeout(hideTimer);
+      showPanel();
+    } else {
+      scheduleHide(2000);
+    }
   });
 
   // Quality menu clicks
@@ -216,14 +283,22 @@ function createVideoGrabber() {
       e.stopPropagation();
       const quality = item.getAttribute("data-quality") || "best";
       menu.style.display = "none";
+      scheduleHide(1000);
       triggerVideoDownload(quality);
     });
   });
 
   // Close dropdown on click outside
   document.addEventListener("click", () => {
-    menu.style.display = "none";
+    if (menu.style.display === "block") {
+      menu.style.display = "none";
+      scheduleHide(1500);
+    }
   });
+
+  // Initial appearance: show for 3.5 seconds on load, then auto-hide
+  showPanel();
+  scheduleHide(3500);
 }
 
 // 4. Native Action Bar Button (Below Video Title on YouTube)
