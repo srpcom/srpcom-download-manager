@@ -2,8 +2,11 @@ import os
 import sys
 import subprocess
 import winreg
+import webbrowser
 import customtkinter as ctk
 from tkinter import messagebox
+
+WEBSTORE_URL = "https://chromewebstore.google.com/detail/srpcom-download-manager-i/jnfbdfkpbbpmoanbkgablbmklfpgacl"
 
 EXTENSION_IDS = [
     "jnfbdfkpbbpmoanbkgablbmklfpgacl", # Chrome Web Store official ID
@@ -53,8 +56,8 @@ def register_registry_now():
 class BrowserExtensionDialog(ctk.CTkToplevel):
     def __init__(self, parent):
         super().__init__(parent)
-        self.title("Integrasi Browser Chrome / Edge - SRPCOM")
-        self.geometry("640x540")
+        self.title("Integrasi Ekstensi Browser - SRPCOM")
+        self.geometry("660x600")
         self.resizable(False, False)
         self.transient(parent)
 
@@ -71,7 +74,7 @@ class BrowserExtensionDialog(ctk.CTkToplevel):
 
         h_title = ctk.CTkLabel(
             header,
-            text="🌐 Integrasi Otomatis Browser Chrome / Edge (Khas IDM)",
+            text="🌐 Integrasi Ekstensi Browser Chrome / Edge",
             font=ctk.CTkFont(size=15, weight="bold"),
             text_color="white"
         )
@@ -79,36 +82,25 @@ class BrowserExtensionDialog(ctk.CTkToplevel):
 
         # Bottom Buttons packed first
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
-        btn_frame.pack(fill="x", padx=25, pady=(10, 20), side="bottom")
+        btn_frame.pack(fill="x", padx=25, pady=(10, 18), side="bottom")
 
         close_btn = ctk.CTkButton(
             btn_frame,
             text="Tutup",
-            width=90,
+            width=95,
             height=34,
             fg_color="#718096",
             command=self.destroy
         )
-        close_btn.pack(side="right", padx=(10, 0))
-
-        open_folder_btn = ctk.CTkButton(
-            btn_frame,
-            text="📂 Buka Folder Ekstensi",
-            width=170,
-            height=34,
-            fg_color="#4A5568",
-            hover_color="#2D3748",
-            command=self._open_ext_folder
-        )
-        open_folder_btn.pack(side="right")
+        close_btn.pack(side="right")
 
         # Body container
         body = ctk.CTkFrame(self, fg_color="transparent")
-        body.pack(fill="both", expand=True, padx=25, pady=15)
+        body.pack(fill="both", expand=True, padx=25, pady=12)
 
-        # Status Box
+        # 1. Status Bar
         status_box = ctk.CTkFrame(body, fg_color=("gray85", "gray20"), corner_radius=8)
-        status_box.pack(fill="x", pady=(0, 15))
+        status_box.pack(fill="x", pady=(0, 12))
 
         s1 = ctk.CTkLabel(
             status_box,
@@ -117,111 +109,131 @@ class BrowserExtensionDialog(ctk.CTkToplevel):
             text_color="#38A169",
             anchor="w"
         )
-        s1.pack(fill="x", padx=15, pady=(10, 3))
+        s1.pack(fill="x", padx=15, pady=(10, 4))
 
         s2 = ctk.CTkLabel(
             status_box,
-            text=f"🟢 Windows Registry: TERDAFTAR OTOMATIS ({len(EXTENSION_IDS)} ID Terdaftar)",
+            text=f"🟢 Windows Registry: TERDAFTAR OTOMATIS ({len(EXTENSION_IDS)} ID Terverifikasi)",
             font=ctk.CTkFont(size=11),
             text_color="#38A169",
             anchor="w"
         )
         s2.pack(fill="x", padx=15, pady=(0, 10))
 
-        # 1-Click Action Frame
-        action_frame = ctk.CTkFrame(body, fg_color="transparent")
-        action_frame.pack(fill="x", pady=(0, 15))
+        # 2. METODE UTAMA (Chrome Web Store Resmi)
+        store_frame = ctk.CTkFrame(body, fg_color=("gray90", "#1E293B"), corner_radius=10, border_width=1.5, border_color="#3B82F6")
+        store_frame.pack(fill="x", pady=(0, 14), padx=2)
 
-        act_lbl = ctk.CTkLabel(
-            action_frame,
-            text="⚡ Luncurkan Browser dengan Ekstensi Langsung Aktif (1-Click):",
+        st_title = ctk.CTkLabel(
+            store_frame,
+            text="⭐ Jalur Resmi: Google Chrome Web Store (Disarankan)",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color="#60A5FA",
+            anchor="w"
+        )
+        st_title.pack(fill="x", padx=16, pady=(12, 4))
+
+        st_desc = ctk.CTkLabel(
+            store_frame,
+            text="Instalasi 1-klik resmi dari Google Chrome Web Store. Bebas dari pesan peringatan 'Developer mode' dan otomatis menerima pembaruan versi terbaru selamanya.",
+            font=ctk.CTkFont(size=11),
+            text_color=("gray30", "gray70"),
+            wraplength=590,
+            justify="left",
+            anchor="w"
+        )
+        st_desc.pack(fill="x", padx=16, pady=(0, 10))
+
+        btn_row_store = ctk.CTkFrame(store_frame, fg_color="transparent")
+        btn_row_store.pack(fill="x", padx=16, pady=(0, 12))
+
+        open_webstore_btn = ctk.CTkButton(
+            btn_row_store,
+            text="🌐 Buka Halaman Chrome Web Store (1-Klik Pasang)",
+            height=38,
+            fg_color="#1D4ED8",
+            hover_color="#1E40AF",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=self._open_webstore
+        )
+        open_webstore_btn.pack(side="left", padx=(0, 10))
+
+        store_hint = ctk.CTkLabel(
+            btn_row_store,
+            text="✔ Kompatibel: Chrome, Edge, Brave, Opera",
+            font=ctk.CTkFont(size=11),
+            text_color="#38A169"
+        )
+        store_hint.pack(side="left")
+
+        # 3. METODE CADANGAN (Pengembang / Pengujian Offline)
+        dev_frame = ctk.CTkFrame(body, fg_color=("gray90", "gray17"), corner_radius=8)
+        dev_frame.pack(fill="x", pady=(0, 8), padx=2)
+
+        dev_title = ctk.CTkLabel(
+            dev_frame,
+            text="🛠️ Metode Pengembang / Uji Coba Offline (Load Unpacked)",
             font=ctk.CTkFont(size=12, weight="bold"),
             anchor="w"
         )
-        act_lbl.pack(fill="x", pady=(0, 8))
+        dev_title.pack(fill="x", padx=14, pady=(10, 4))
 
-        btn_row = ctk.CTkFrame(action_frame, fg_color="transparent")
-        btn_row.pack(fill="x")
+        dev_desc = (
+            "Jika tidak terhubung ke Web Store atau ingin menguji perubahan lokal secara langsung:\n"
+            "1. Buka chrome://extensions di Chrome lalu aktifkan 'Developer mode'.\n"
+            "2. Klik 'Load unpacked' lalu pilih folder 'browser_extension'."
+        )
+        dev_lbl = ctk.CTkLabel(
+            dev_frame,
+            text=dev_desc,
+            font=ctk.CTkFont(size=11),
+            text_color="gray",
+            justify="left",
+            anchor="w"
+        )
+        dev_lbl.pack(fill="x", padx=14, pady=(0, 10))
+
+        dev_btn_row = ctk.CTkFrame(dev_frame, fg_color="transparent")
+        dev_btn_row.pack(fill="x", padx=14, pady=(0, 10))
+
+        open_folder_btn = ctk.CTkButton(
+            dev_btn_row,
+            text="📂 Buka Folder Ekstensi",
+            width=170,
+            height=32,
+            fg_color="#4A5568",
+            hover_color="#2D3748",
+            font=ctk.CTkFont(size=11),
+            command=self._open_ext_folder
+        )
+        open_folder_btn.pack(side="left", padx=(0, 8))
 
         chrome_btn = ctk.CTkButton(
-            btn_row,
-            text="🚀 Buka Google Chrome",
+            dev_btn_row,
+            text="🚀 Buka Chrome Dev Mode",
             width=180,
-            height=36,
+            height=32,
             fg_color="#2B6CB0",
             hover_color="#2C5282",
-            font=ctk.CTkFont(weight="bold"),
+            font=ctk.CTkFont(size=11),
             command=self._launch_chrome
         )
-        chrome_btn.pack(side="left", padx=(0, 10))
+        chrome_btn.pack(side="left")
 
-        edge_btn = ctk.CTkButton(
-            btn_row,
-            text="🚀 Buka Microsoft Edge",
-            width=180,
-            height=36,
-            fg_color="#319795",
-            hover_color="#285E61",
-            font=ctk.CTkFont(weight="bold"),
-            command=self._launch_edge
-        )
-        edge_btn.pack(side="left")
-
-        # Separator / Manual Step Info
-        manual_lbl = ctk.CTkLabel(
-            body,
-            text="Atau cara manual satu kali via menu Chrome (chrome://extensions):",
-            font=ctk.CTkFont(size=11, weight="bold"),
-            text_color="gray",
-            anchor="w"
-        )
-        manual_lbl.pack(fill="x", pady=(10, 4))
-
-        steps_frame = ctk.CTkFrame(body, fg_color=("gray90", "gray17"), corner_radius=6)
-        steps_frame.pack(fill="x", pady=(0, 5))
-
-        st_text = (
-            "1. Buka chrome://extensions di address bar Chrome.\n"
-            "2. Aktifkan 'Developer mode' di pojok kanan atas.\n"
-            "3. Klik 'Load unpacked' lalu pilih folder 'browser_extension'."
-        )
-        st_lbl = ctk.CTkLabel(
-            steps_frame,
-            text=st_text,
-            font=ctk.CTkFont(size=11),
-            justify="left",
-            anchor="w"
-        )
-        st_lbl.pack(fill="x", padx=12, pady=8)
-
-        success_tip = ctk.CTkLabel(
-            body,
-            text="✔ Begitu terpasang, setiap kali Anda mengklik download file (.apk, .zip, .mp4, dll) di website mana pun, Chrome akan langsung meneruskannya ke SRPCOM Download Manager!",
-            font=ctk.CTkFont(size=11),
-            text_color="#38A169",
-            wraplength=580,
-            justify="left",
-            anchor="w"
-        )
-        success_tip.pack(fill="x", pady=(8, 0))
+    def _open_webstore(self):
+        try:
+            webbrowser.open(WEBSTORE_URL)
+        except Exception:
+            subprocess.Popen(f'cmd /c start "" "{WEBSTORE_URL}"')
 
     def _launch_chrome(self):
         ext_folder = get_ext_path()
         exe = find_browser_exe("chrome")
         try:
             subprocess.Popen([exe, f'--load-extension={ext_folder}', "chrome://extensions"])
-            messagebox.showinfo("Google Chrome", "Google Chrome telah dibuka dengan ekstensi SRPCOM langsung aktif!")
+            messagebox.showinfo("Google Chrome", "Google Chrome telah dibuka dengan ekstensi lokal dimuat!")
         except Exception as e:
             messagebox.showerror("Error", f"Gagal meluncurkan Chrome: {e}")
-
-    def _launch_edge(self):
-        ext_folder = get_ext_path()
-        exe = find_browser_exe("edge")
-        try:
-            subprocess.Popen([exe, f'--load-extension={ext_folder}', "edge://extensions"])
-            messagebox.showinfo("Microsoft Edge", "Microsoft Edge telah dibuka dengan ekstensi SRPCOM langsung aktif!")
-        except Exception as e:
-            messagebox.showerror("Error", f"Gagal meluncurkan Edge: {e}")
 
     def _open_ext_folder(self):
         folder = os.path.normpath(get_ext_path())
