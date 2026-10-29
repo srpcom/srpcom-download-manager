@@ -6,10 +6,10 @@ import webbrowser
 import customtkinter as ctk
 from tkinter import messagebox
 
-WEBSTORE_URL = "https://chromewebstore.google.com/detail/srpcom-download-manager-i/jnfbdfkpbbpmoanbkgablbmklfpgacl"
+WEBSTORE_URL = "https://chromewebstore.google.com/detail/srpcom-download-manager-i/jnfbfdkpbbpmoanbkgablbmbklfpgacl"
 
 EXTENSION_IDS = [
-    "jnfbdfkpbbpmoanbkgablbmklfpgacl", # Chrome Web Store official ID
+    "jnfbfdkpbbpmoanbkgablbmbklfpgacl", # Chrome Web Store official ID
     "keoeiohodnbgednmclmnconnkihjlail"  # Local developer unpacked ID
 ]
 

@@ -13,7 +13,7 @@ APP_PUBLISHER = "SRPCOM"
 APP_VERSION = "1.3.2"
 
 EXTENSION_IDS = [
-    "jnfbdfkpbbpmoanbkgablbmklfpgacl",
+    "jnfbfdkpbbpmoanbkgablbmbklfpgacl",
     "keoeiohodnbgednmclmnconnkihjlail"
 ]
 
