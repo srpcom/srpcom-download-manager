@@ -4,6 +4,7 @@ import customtkinter as ctk
 from core.manager import DownloadManager
 from core.browser_listener import start_browser_listener
 from gui.main_window import MainWindow
+from gui.tray_manager import SystemTrayManager
 
 def main():
     # Set default appearance
@@ -32,24 +33,23 @@ def main():
 
     app = MainWindow(manager=manager)
 
+    # Initialize System Tray (Hidden Icons / Notification Area)
+    tray = SystemTrayManager(app=app, manager=manager)
+    app.tray_manager = tray
+    tray.start()
+
     # Start Browser Integration listener
     start_browser_listener(
         on_download_received=app.open_add_dialog_with_url,
         on_video_download_received=app.open_video_download_dialog
     )
 
-    # Clean shutdown handler
-    def on_closing():
-        manager.pause_all()
-        manager.save_tasks()
-        app.destroy()
-        sys.exit(0)
+    # Intercept 'X' window close: minimize to system tray instead of killing app (IDM-style)
+    app.protocol("WM_DELETE_WINDOW", app.hide_to_tray)
 
-    app.protocol("WM_DELETE_WINDOW", on_closing)
-
-    # If launched on Windows boot (--autostart / --minimized), start minimized to taskbar
+    # If launched on Windows boot (--autostart / --minimized), start directly hidden in tray
     if any(arg in sys.argv for arg in ["--autostart", "--minimized", "-minimized"]):
-        app.after(150, app.iconify)
+        app.after(50, lambda: tray.hide_to_tray(notify=False))
 
     app.mainloop()
 

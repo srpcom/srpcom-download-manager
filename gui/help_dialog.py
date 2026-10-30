@@ -6,7 +6,7 @@ from PIL import Image
 from gui.window_utils import center_window, bring_window_to_front
 
 APP_NAME = "SRPCOM Download Manager"
-APP_VERSION = "1.3.2"
+APP_VERSION = "1.3.3"
 APP_RELEASE_DATE = "Oktober 2026"
 
 def get_asset_path(filename: str) -> str:
@@ -192,6 +192,17 @@ class HelpAboutDialog(ctk.CTkToplevel):
         scroll.pack(fill="both", expand=True, padx=4, pady=4)
 
         history = [
+            (
+                "Versi 1.3.3",
+                "30 Oktober 2026",
+                "#38A169",
+                [
+                    "🖥️ Integrasi System Tray & Background Service (Khas IDM): Menutup jendela (klik 'X') kini meminimalkan aplikasi ke System Tray (Hidden Icons) tanpa menghentikan proses unduhan dan background listener penangkap link browser.",
+                    "🖱️ Menu Praktis Tray Icon: Klik kiri atau dobel-klik icon tray untuk membuka kembali jendela utama; klik kanan untuk membuka menu cepat (Buka Aplikasi, Tambah Unduhan, Jeda Semua, Lanjutkan Semua, dan Keluar Sepenuhnya).",
+                    "🚀 Silent Auto-Start Windows Booting: Saat komputer pertama kali dinyalakan, SRPCOM Download Manager otomatis berjalan senyap di System Tray tanpa mengganggu layar startup pengguna.",
+                    "🔔 Notifikasi Status Unduhan: Notifikasi interaktif di Windows saat aplikasi diminimalkan ke tray atau saat berkas selesai diunduh."
+                ]
+            ),
             (
                 "Versi 1.3.2",
                 "29 Oktober 2026",

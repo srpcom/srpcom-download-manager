@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SRPCOM Download Manager Integration",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "Integrasikan unduhan browser Chrome/Edge otomatis ke SRPCOM Download Manager.",
   "icons": {
     "16": "icon16.png",

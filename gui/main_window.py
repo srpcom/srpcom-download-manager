@@ -323,6 +323,7 @@ class MainWindow(ctk.CTk):
         self.row_widgets: Dict[str, TaskRow] = {}
         self.column_widths = get_column_widths()
         self.header_cells: Dict[str, ctk.CTkFrame] = {}
+        self.tray_manager = None
 
         self.title("SRPCOM Download Manager")
         self.geometry("1080x660")
@@ -491,6 +492,18 @@ class MainWindow(ctk.CTk):
             command=self._open_help_dialog
         )
         help_btn.pack(side="left", padx=3)
+
+        exit_btn = ctk.CTkButton(
+            tb,
+            text="🚪 Keluar",
+            width=80,
+            height=34,
+            fg_color="#4A5568",
+            hover_color="#C53030",
+            font=ctk.CTkFont(weight="bold"),
+            command=self.quit_application
+        )
+        exit_btn.pack(side="left", padx=3)
 
         # Right side of toolbar: Speed Limiter & Threads Limiter
         # 1. Threads / Segments Selector
@@ -999,7 +1012,48 @@ class MainWindow(ctk.CTk):
             self._refresh_task_rows()
             dlg = DownloadCompleteDialog(self, task)
             bring_window_to_front(dlg)
+            if hasattr(self, "tray_manager") and self.tray_manager:
+                try:
+                    self.tray_manager.notify(f"Unduhan selesai: {task.filename}", "SRPCOM Download Manager")
+                except Exception:
+                    pass
         self.after(0, show_dialog)
+
+    def hide_to_tray(self):
+        """Minimize main window to system tray (hidden icons) while keeping background downloads active."""
+        if hasattr(self, "tray_manager") and self.tray_manager:
+            self.tray_manager.hide_to_tray()
+        else:
+            self.withdraw()
+
+    def quit_application(self, confirm: bool = True):
+        """Completely close SRPCOM Download Manager, stopping all processes cleanly."""
+        if confirm:
+            from tkinter import messagebox
+            ans = messagebox.askyesno(
+                "Konfirmasi Keluar",
+                "Apakah Anda yakin ingin menutup SRPCOM Download Manager sepenuhnya?\n\n"
+                "• Unduhan yang sedang aktif akan dijeda otomatis.\n"
+                "• Integrasi browser akan nonaktif sampai aplikasi dibuka kembali.\n\n"
+                "(Tips: Klik tombol 'X' di pojok kanan atas jendela jika Anda hanya ingin meminimalkan aplikasi ke System Tray agar tetap aktif)",
+                parent=self
+            )
+            if not ans:
+                return
+
+        if hasattr(self, "tray_manager") and self.tray_manager:
+            self.tray_manager.quit_app()
+        else:
+            try:
+                self.manager.pause_all()
+                self.manager.save_tasks()
+            except Exception:
+                pass
+            try:
+                self.destroy()
+            except Exception:
+                pass
+            sys.exit(0)
 
     def _on_task_updated(self, task: DownloadTask):
         if task.task_id in self.row_widgets:

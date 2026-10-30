@@ -49,7 +49,7 @@ def register_registry_now():
             try:
                 with winreg.CreateKey(winreg.HKEY_CURRENT_USER, reg_path) as key:
                     winreg.SetValueEx(key, "path", 0, winreg.REG_SZ, ext_dir)
-                    winreg.SetValueEx(key, "version", 0, winreg.REG_SZ, "1.3.2")
+                    winreg.SetValueEx(key, "version", 0, winreg.REG_SZ, "1.3.3")
             except Exception:
                 pass
 

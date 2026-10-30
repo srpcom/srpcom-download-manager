@@ -10,7 +10,7 @@ from tkinter import messagebox
 
 APP_NAME = "SRPCOM Download Manager"
 APP_PUBLISHER = "SRPCOM"
-APP_VERSION = "1.3.2"
+APP_VERSION = "1.3.3"
 
 EXTENSION_IDS = [
     "jnfbfdkpbbpmoanbkgablbmbklfpgacl",
